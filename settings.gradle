@@ -1,7 +1,26 @@
 plugins {
     id 'org.gradle.toolchains.foojay-resolver-convention' version '1.0.0'
 }
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        google()
+        mavenCentral()
+        maven { url 'https://jitpack.io' }   // thêm dòng này
+    }
+}
 
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+        maven { url 'https://jitpack.io' }   // thêm dòng này
+    }
+}
+
+rootProject.name = "NhatKyDuongHuyet"
+include ':app'
 rootProject.name = 'NhatKyDuongHuyet'
 
 // Thêm dòng này để khai báo module app
