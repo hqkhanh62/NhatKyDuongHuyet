@@ -1,5 +1,5 @@
 plugins {
-    id 'com.android.application' version
+    id 'com.android.application'
     id 'org.jetbrains.kotlin.android' version '2.0.21' apply false
     id 'kotlin-kapt'
 }
