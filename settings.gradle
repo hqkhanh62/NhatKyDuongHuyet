@@ -19,8 +19,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "NhatKyDuongHuyet"
-include ':app'
 rootProject.name = 'NhatKyDuongHuyet'
 
 // Thêm dòng này để khai báo module app
