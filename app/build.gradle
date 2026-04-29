@@ -85,8 +85,8 @@ dependencies {
     // Let's hold off on a specific chart library until we get to that phase to keep dependencies minimal
 
     // For charts
-    implementation "com.github.tehras:charts:0.2.1"
-
+    // implementation "com.github.tehras:charts:0.2.1"
+	implementation "io.github.ehsannarmani:compose-charts:0.1.10"   // ví dụ thư viện khác trên Maven Central [web:107]
     // WorkManager for reminders
     implementation "androidx.work:work-runtime-ktx:2.9.0"
 
