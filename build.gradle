@@ -3,7 +3,7 @@ plugins {
     id 'com.android.application' version '8.5.0' apply false
 
     // Kotlin for Android
-    id 'org.jetbrains.kotlin.android' version '1.9.24' apply false
+    id 'org.jetbrains.kotlin.android' version '1.9.10' apply false
 }
 
 // Bỏ hẳn dòng này:
