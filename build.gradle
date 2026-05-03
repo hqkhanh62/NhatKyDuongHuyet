@@ -1,24 +1,22 @@
 buildscript {
     ext {
-        kotlin_version = '1.9.0'
         compose_version = '1.5.4'
         room_version = '2.6.1'
         lifecycle_version = '2.6.2'
         activity_version = '1.8.2'
     }
-    repositories {
-        google()
-        mavenCentral()
-    }
+	
     dependencies {
         classpath 'com.android.tools.build:gradle:8.2.0'
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
     }
 }
 
-allprojects {
-    repositories {
-        google()
-        mavenCentral()
-    }
+plugins {
+    id 'com.android.application' version '8.5.0' apply false
+    id 'org.jetbrains.kotlin.android' version '1.9.24' apply false
+    id 'org.jetbrains.kotlin.plugin.compose' version '1.9.24' apply false
 }
+
+// Nếu còn dòng kotlin_version cũ, có thể bỏ:
+// ext.kotlin_version = '1.9.0'  <-- xoá
