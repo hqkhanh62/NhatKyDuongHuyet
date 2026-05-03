@@ -1,13 +1,12 @@
 plugins {
-    id("com.android.application")
-    id("org.jetbrains.kotlin.android")
-    id("org.jetbrains.kotlin.plugin.compose") // Thêm dòng này
-	id 'kotlin-kapt'
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+    id 'kotlin-kapt'
 }
 
 android {
     namespace 'com.example.nhatkyduonghuyet'
-    compileSdk 35
+    compileSdk 34
 
     defaultConfig {
         applicationId 'com.example.nhatkyduonghuyet'
@@ -39,7 +38,7 @@ android {
         compose true
     }
     composeOptions {
-    //    kotlinCompilerExtensionVersion '1.5.4'
+        kotlinCompilerExtensionVersion '1.5.4'
     }
     packaging {
         resources {
@@ -86,8 +85,8 @@ dependencies {
     // Let's hold off on a specific chart library until we get to that phase to keep dependencies minimal
 
     // For charts
-    // implementation "com.github.tehras:charts:0.2.1"
-	implementation "io.github.ehsannarmani:compose-charts:0.1.10"   // ví dụ thư viện khác trên Maven Central [web:107]
+    implementation "com.github.tehras:charts:0.2.0"
+
     // WorkManager for reminders
     implementation "androidx.work:work-runtime-ktx:2.9.0"
 

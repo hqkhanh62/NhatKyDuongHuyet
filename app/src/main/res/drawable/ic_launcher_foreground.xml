@@ -3,7 +3,13 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-  <path
-      android:fillColor="#FF000000"
-      android:pathData="M54,54m-48,0a48,48 0,1 1,96 0a48,48 0,1 1,-96 0"/>
+    <!-- Blood drop icon -->
+    <path
+        android:fillColor="#E53935"
+        android:pathData="M54,20 C54,20 34,42 34,58 C34,69 43,78 54,78 C65,78 74,69 74,58 C74,42 54,20 54,20 Z" />
+    <!-- Heart beat line inside -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2"
+        android:pathData="M44,60 L49,60 L52,50 L56,70 L59,60 L64,60" />
 </vector>
