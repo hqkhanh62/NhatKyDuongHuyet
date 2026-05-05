@@ -4,19 +4,19 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.navigation.NavController
 import com.example.nhatkyduonghuyet.viewmodel.LogEntryViewModel
-import com.github.tehras.charts.line.LineChart
-import com.github.tehras.charts.line.LineChartData
-import com.github.tehras.charts.line.renderer.point.FilledCircularPointDrawer
-import com.github.tehras.charts.line.renderer.line.SolidLineDrawer
-import com.github.tehras.charts.line.renderer.xaxis.SimpleXAxisDrawer
-import com.github.tehras.charts.line.renderer.yaxis.SimpleYAxisDrawer
-import com.github.tehras.charts.line.LineChartData.Point
+import com.github.mikephil.charting.charts.LineChart
+import com.github.mikephil.charting.components.XAxis
+import com.github.mikephil.charting.data.Entry
+import com.github.mikephil.charting.data.LineData
+import com.github.mikephil.charting.data.LineDataSet
+import com.github.mikephil.charting.formatter.IndexAxisValueFormatter
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -25,10 +25,14 @@ fun ChartScreen(
     viewModel: LogEntryViewModel,
     chartType: String
 ) {
+    val date by viewModel.currentDate.collectAsState()
+    val dailyData by viewModel.getDailyChartData(date).collectAsState()
+    val weeklyData by viewModel.getWeeklyChartData().collectAsState()
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(if (chartType == "daily") "Biểu đồ Đường huyết Hàng ngày" else "Biểu đồ Đường huyết Hàng tuần") },
+                title = { Text(if (chartType == "daily") "Biểu đồ Hàng ngày" else "Biểu đồ Hàng tuần") },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(Icons.Filled.ArrowBack, "Quay lại")
@@ -37,54 +41,97 @@ fun ChartScreen(
             )
         }
     ) { paddingValues ->
-        Column(modifier = Modifier.padding(paddingValues).fillMaxSize().padding(16.dp)) {
+        Column(
+            modifier = Modifier
+                .padding(paddingValues)
+                .fillMaxSize()
+                .padding(16.dp)
+        ) {
             if (chartType == "daily") {
-                DailyBloodGlucoseChart(viewModel = viewModel, selectedDate = viewModel.currentDate.value)
-            } else if (chartType == "weekly") {
-                WeeklyBloodGlucoseChart(viewModel = viewModel)
+                Text("Dữ liệu ngày: $date", style = MaterialTheme.typography.titleMedium)
+                Spacer(modifier = Modifier.height(8.dp))
+                if (dailyData.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxWidth().height(250.dp)) {
+                        Text("Không có dữ liệu cho ngày này")
+                    }
+                } else {
+                    BloodGlucoseLineChart(
+                        dataPoints = dailyData,
+                        label = "Đường huyết (mmol/L)",
+                        modifier = Modifier.fillMaxWidth().height(250.dp)
+                    )
+                }
+            } else {
+                Text("Trung bình hàng tuần", style = MaterialTheme.typography.titleMedium)
+                Spacer(modifier = Modifier.height(8.dp))
+                if (weeklyData.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxWidth().height(250.dp)) {
+                        Text("Chưa có dữ liệu hàng tuần")
+                    }
+                } else {
+                    BloodGlucoseLineChart(
+                        dataPoints = weeklyData,
+                        label = "Trung bình (mmol/L)",
+                        modifier = Modifier.fillMaxWidth().height(250.dp)
+                    )
+                }
             }
         }
     }
 }
 
 @Composable
-fun DailyBloodGlucoseChart(viewModel: LogEntryViewModel, selectedDate: String) {
-    val dailyData by viewModel.getDailyChartData(selectedDate).collectAsState()
+fun BloodGlucoseLineChart(
+    dataPoints: List<Pair<String, Double>>,
+    label: String,
+    modifier: Modifier = Modifier
+) {
+    val colorPrimary = MaterialTheme.colorScheme.primary.toArgb()
+    val colorOnSurface = MaterialTheme.colorScheme.onSurface.toArgb()
 
-    val points = dailyData.map { Point(it.second.toFloat(), it.first) }
-    // Placeholder for daily chart data
-    // This will need to be populated from the ViewModel based on selected date
+    AndroidView(
+        factory = { context ->
+            LineChart(context).apply {
+                description.isEnabled = false
+                setTouchEnabled(true)
+                setPinchZoom(true)
+                
+                xAxis.apply {
+                    position = XAxis.XAxisPosition.BOTTOM
+                    setDrawGridLines(false)
+                    textColor = colorOnSurface
+                    granularity = 1f
+                }
+                
+                axisLeft.apply {
+                    setDrawGridLines(true)
+                    textColor = colorOnSurface
+                }
+                
+                axisRight.isEnabled = false
+                legend.textColor = colorOnSurface
+            }
+        },
+        update = { chart ->
+            val entries = dataPoints.mapIndexed { index, pair ->
+                Entry(index.toFloat(), pair.second.toFloat())
+            }
 
+            val dataSet = LineDataSet(entries, label).apply {
+                color = colorPrimary
+                setCircleColor(colorPrimary)
+                lineWidth = 2f
+                circleRadius = 4f
+                setDrawCircleHole(false)
+                valueTextSize = 10f
+                valueTextColor = colorOnSurface
+                mode = LineDataSet.Mode.CUBIC_BEZIER
+            }
 
-    LineChart(
-        lineChartData = LineChartData(
-            points = points,
-            lineDrawer = SolidLineDrawer(color = Color.Blue)
-        ),
-        modifier = Modifier.fillMaxWidth().height(250.dp),
-        pointDrawer = FilledCircularPointDrawer(),
-        xAxisDrawer = SimpleXAxisDrawer(),
-        yAxisDrawer = SimpleYAxisDrawer()
-    )
-}
-
-@Composable
-fun WeeklyBloodGlucoseChart(viewModel: LogEntryViewModel) {
-    val weeklyData by viewModel.getWeeklyChartData().collectAsState()
-
-    val points = weeklyData.map { Point(it.second.toFloat(), it.first) }
-    // Placeholder for weekly chart data
-    // This will need to be populated from the ViewModel
-
-
-    LineChart(
-        lineChartData = LineChartData(
-            points = points,
-            lineDrawer = SolidLineDrawer(color = Color.Green)
-        ),
-        modifier = Modifier.fillMaxWidth().height(250.dp),
-        pointDrawer = FilledCircularPointDrawer(),
-        xAxisDrawer = SimpleXAxisDrawer(),
-        yAxisDrawer = SimpleYAxisDrawer()
+            chart.xAxis.valueFormatter = IndexAxisValueFormatter(dataPoints.map { it.first })
+            chart.data = LineData(dataSet)
+            chart.invalidate()
+        },
+        modifier = modifier
     )
 }
