@@ -187,7 +187,7 @@ export default function App(){
           <div className="bg-white rounded-2xl p-6 max-w-md w-full" onClick={e=>e.stopPropagation()}>
             <h3 className="font-bold text-lg mb-3">📌 Cách ghim ra màn hình chính</h3>
             <div className="space-y-3 text-sm">
-              <div><b>iPhone (Safari):</b> Bấm nút Chia sẻ ⬆️ ở dưới - Thêm vào MH chính > Thêm</div>
+              <div><b>iPhone (Safari):</b> Bấm nút Chia sẻ - Thêm vào MH chính - Thêm</div>
               <div><b>Android (Chrome):</b> Bấm ⋮ 3 chấm góc trên - Thêm vào Màn hình chính / Cài đặt ứng dụng</div>
               <div className="bg-yellow-50 p-2 rounded">Nếu đang mở trong app MetaAI/Facebook, hãy bấm "Mo trong trinh duyet" trước rồi mới ghim được.</div>
             </div>
