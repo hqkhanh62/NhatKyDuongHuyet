@@ -1,35 +1,25 @@
 package com.example.nhatkyduonghuyet.ui.chart
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.rememberTransformableState
-import androidx.compose.foundation.gestures.transformable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.example.nhatkyduonghuyet.data.local.entity.LogEntry
+import com.example.nhatkyduonghuyet.ui.components.LineChartV2
 import com.example.nhatkyduonghuyet.viewmodel.LogEntryViewModel
 import java.text.SimpleDateFormat
 import java.util.Locale
-import kotlin.math.ceil
-import kotlin.math.floor
+
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -45,26 +35,12 @@ fun ChartScreen(
     var showNight by remember { mutableStateOf(false) }
     var showDailyAvg by remember { mutableStateOf(false) }
 
-    var zoomScale by remember { mutableFloatStateOf(1f) }
-    val chartScrollState = rememberScrollState()
-    var containerWidthPx by remember { mutableIntStateOf(0) }
-    
     val dailyPoints = remember(allEntries) {
         aggregateBySession(allEntries)
     }
 
-    val visiblePoints = remember(dailyPoints, chartScrollState.value, zoomScale, containerWidthPx) {
-        if (dailyPoints.isEmpty() || containerWidthPx <= 0) return@remember dailyPoints
-        
-        val totalPoints = dailyPoints.size
-        val screenWidth = containerWidthPx.toFloat()
-        val currentPointWidth = (screenWidth / (totalPoints - 1).coerceAtLeast(1)) * zoomScale
-        
-        val startIdx = floor(chartScrollState.value / currentPointWidth).toInt().coerceIn(0, totalPoints - 1)
-        val endIdx = ceil((chartScrollState.value + screenWidth) / currentPointWidth).toInt().coerceIn(0, totalPoints - 1)
-        
-        if (startIdx <= endIdx) dailyPoints.slice(startIdx..endIdx) else emptyList()
-    }
+    val visiblePoints = dailyPoints // Vico handles scrolling/visibility internally if needed, or we keep simple for list
+
 
     Scaffold(
         topBar = {
@@ -100,9 +76,9 @@ fun ChartScreen(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(300.dp)
+                    .height(350.dp)
                     .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
-                    .onGloballyPositioned { containerWidthPx = it.size.width }
+                    .padding(8.dp)
             ) {
                 if (dailyPoints.isEmpty()) {
                     Text(
@@ -111,49 +87,15 @@ fun ChartScreen(
                         color = Color.Gray
                     )
                 } else {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .horizontalScroll(chartScrollState)
-                            .transformable(
-                                state = rememberTransformableState { zoomChange, _, _ ->
-                                    zoomScale = (zoomScale * zoomChange).coerceIn(1f, 10f)
-                                }
-                            )
-                    ) {
-                        val density = LocalDensity.current
-                        val screenWidthDp = with(density) { containerWidthPx.toDp() }
-                        val canvasWidth = if (dailyPoints.size > 1) screenWidthDp * zoomScale else screenWidthDp
-
-                        FlexibleLineChart(
-                            points = dailyPoints,
-                            showMorning = showMorning,
-                            showNoon = showNoon,
-                            showEvening = showEvening,
-                            showNight = showNight,
-                            showDailyAvg = showDailyAvg,
-                            modifier = Modifier
-                                .width(canvasWidth)
-                                .fillMaxHeight(),
-                            minY = 3.0,
-                            maxY = 15.0,
-                            yStep = 2.0
-                        )
-                    }
-                    
-                    if (zoomScale > 1f) {
-                        Surface(
-                            modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer,
-                            shape = MaterialTheme.shapes.small
-                        ) {
-                            Text(
-                                text = "Zoom: ${"%.1f".format(zoomScale)}x",
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                style = MaterialTheme.typography.labelSmall
-                            )
-                        }
-                    }
+                    LineChartV2(
+                        points = dailyPoints,
+                        showMorning = showMorning,
+                        showNoon = showNoon,
+                        showEvening = showEvening,
+                        showNight = showNight,
+                        showDailyAvg = showDailyAvg,
+                        modifier = Modifier.fillMaxSize()
+                    )
                 }
             }
 
@@ -280,89 +222,3 @@ fun aggregateBySession(entries: List<LogEntry>): List<SessionPoint> {
     return result
 }
 
-@Composable
-fun FlexibleLineChart(
-    points: List<SessionPoint>,
-    showMorning: Boolean,
-    showNoon: Boolean,
-    showEvening: Boolean,
-    showNight: Boolean,
-    showDailyAvg: Boolean,
-    modifier: Modifier = Modifier,
-    minY: Double,
-    maxY: Double,
-    yStep: Double
-) {
-    val axisColor = Color.Gray
-    val density = LocalDensity.current
-    val leftPaddingPx = with(density) { 40.dp.toPx() }
-    val bottomPaddingPx = with(density) { 32.dp.toPx() }
-    val topPaddingPx = with(density) { 16.dp.toPx() }
-    val rightPaddingPx = with(density) { 16.dp.toPx() }
-
-    Canvas(modifier = modifier.padding(8.dp)) {
-        val width = size.width
-        val height = size.height
-        val xStart = leftPaddingPx
-        val xEnd = width - rightPaddingPx
-        val yTop = topPaddingPx
-        val yBottom = height - bottomPaddingPx
-        val chartWidth = xEnd - xStart
-        val chartHeight = yBottom - yTop
-
-        drawLine(color = axisColor, start = Offset(xStart, yBottom), end = Offset(xEnd, yBottom), strokeWidth = 2f)
-        var yValue = minY
-        while (yValue <= maxY + 0.001) {
-            val ratio = ((yValue - minY) / (maxY - minY)).coerceIn(0.0, 1.0)
-            val y = yBottom - (ratio * chartHeight).toFloat()
-            drawLine(color = axisColor.copy(alpha = 0.1f), start = Offset(xStart, y), end = Offset(xEnd, y), strokeWidth = 1f)
-            yValue += yStep
-        }
-
-        if (points.size <= 1) return@Canvas
-        val stepX = chartWidth / (points.size - 1)
-
-        fun valueToY(value: Double?): Float? {
-            if (value == null) return null
-            val clamped = value.coerceIn(minY, maxY)
-            return (yBottom - ((clamped - minY) / (maxY - minY) * chartHeight).toFloat())
-        }
-
-        if (showMorning) drawDataLine(points.map { it.avgMorning }, Color(0xFF2196F3), xStart, stepX, ::valueToY)
-        if (showNoon) drawDataLine(points.map { it.avgNoon }, Color(0xFFFF9800), xStart, stepX, ::valueToY)
-        if (showEvening) drawDataLine(points.map { it.avgEvening }, Color(0xFFF44336), xStart, stepX, ::valueToY)
-        if (showNight) drawDataLine(points.map { it.avgNight }, Color(0xFF9C27B0), xStart, stepX, ::valueToY)
-        if (showDailyAvg) drawDataLine(points.map { it.avgDaily }, Color(0xFF4CAF50), xStart, stepX, ::valueToY, isDashed = true)
-    }
-}
-
-fun DrawScope.drawDataLine(
-    values: List<Double?>,
-    color: Color,
-    xStart: Float,
-    stepX: Float,
-    valueToY: (Double?) -> Float?,
-    isDashed: Boolean = false
-) {
-    var prevOffset: Offset? = null
-    values.forEachIndexed { index, value ->
-        val x = xStart + stepX * index
-        val y = valueToY(value)
-        if (y != null) {
-            val current = Offset(x, y)
-            prevOffset?.let { prev ->
-                drawLine(
-                    color = color,
-                    start = prev,
-                    end = current,
-                    strokeWidth = if (isDashed) 3f else 5f,
-                    pathEffect = if (isDashed) PathEffect.dashPathEffect(floatArrayOf(15f, 10f), 0f) else null
-                )
-            }
-            drawCircle(color = color, radius = 6f, center = current)
-            prevOffset = current
-        } else {
-            prevOffset = null
-        }
-    }
-}
