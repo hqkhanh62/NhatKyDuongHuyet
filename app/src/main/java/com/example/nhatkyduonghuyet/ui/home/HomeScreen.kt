@@ -1,12 +1,18 @@
 package com.example.nhatkyduonghuyet.ui.home
 
+import android.app.Activity
+import android.content.Intent
+import android.speech.RecognizerIntent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Check // Sử dụng icon Check có sẵn trong bộ core
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -15,14 +21,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
-
-// TODO: Kiểm tra và sửa lại đường dẫn package chính xác của LogEntry nếu file nằm ở thư mục khác:
-// G:\NhatKyDuongHuyet_PRO_MAX_FINAL\app\src\main\java\com\example\nhatkyduonghuyet\data\local\entity\LogEntry.kt
-// Ví dụ: import com.example.nhatkyduonghuyet.data.model.LogEntry
-// Hoặc:  import com.example.nhatkyduonghuyet.data.entity.LogEntry
 import com.example.nhatkyduonghuyet.data.local.entity.LogEntry
-
 import com.example.nhatkyduonghuyet.viewmodel.LogEntryViewModel
+import java.text.SimpleDateFormat
+import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -122,6 +124,45 @@ fun SessionEntryCard(
         mutableStateOf(logEntry.bgAfter?.toString() ?: "") 
     }
 
+    // Logic xử lý giọng nói chung
+    fun handleVoiceInput(field: String, speech: String) {
+        val currentTime = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
+        var updatedEntry = logEntry.copy()
+        
+        when (field) {
+            "medType" -> updatedEntry = updatedEntry.copy(medType = speech, time = currentTime)
+            "dose" -> updatedEntry = updatedEntry.copy(dose = speech, time = currentTime)
+            "time" -> updatedEntry = updatedEntry.copy(time = speech)
+            "bgBefore" -> {
+                val value = speech.replace(",", ".").filter { it.isDigit() || it == '.' }.toDoubleOrNull()
+                if (value != null) {
+                    updatedEntry = updatedEntry.copy(bgBefore = value)
+                    bgBeforeStr = value.toString()
+                }
+            }
+            "bgAfter" -> {
+                val value = speech.replace(",", ".").filter { it.isDigit() || it == '.' }.toDoubleOrNull()
+                if (value != null) {
+                    updatedEntry = updatedEntry.copy(bgAfter = value)
+                    bgAfterStr = value.toString()
+                }
+            }
+            "bpSys" -> {
+                speech.filter { it.isDigit() }.toIntOrNull()?.let { updatedEntry = updatedEntry.copy(bpSys = it) }
+            }
+            "bpDia" -> {
+                speech.filter { it.isDigit() }.toIntOrNull()?.let { updatedEntry = updatedEntry.copy(bpDia = it) }
+            }
+            "heartRate" -> {
+                speech.filter { it.isDigit() }.toIntOrNull()?.let { updatedEntry = updatedEntry.copy(heartRate = it) }
+            }
+            "note" -> updatedEntry = updatedEntry.copy(note = speech)
+        }
+        
+        logEntry = updatedEntry
+        onSave(updatedEntry)
+    }
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -153,37 +194,36 @@ fun SessionEntryCard(
                 color = MaterialTheme.colorScheme.outlineVariant
             )
 
-            OutlinedTextField(
+            VoiceEnabledTextField(
                 value = logEntry.medType ?: "",
-                onValueChange = { logEntry = logEntry.copy(medType = it.ifEmpty { null }) },
-                label = { Text("Loại insulin/thuốc") },
-                modifier = Modifier.fillMaxWidth(),
-                shape = MaterialTheme.shapes.medium
+                onValueChange = { logEntry = logEntry.copy(medType = if (it.isEmpty()) null else it) },
+                label = "Loại insulin/thuốc",
+                onVoiceResult = { handleVoiceInput("medType", it) }
             )
             Spacer(modifier = Modifier.height(12.dp))
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(
+                VoiceEnabledTextField(
                     value = logEntry.dose ?: "",
-                    onValueChange = { logEntry = logEntry.copy(dose = it.ifEmpty { null }) },
-                    label = { Text("Liều dùng") },
+                    onValueChange = { logEntry = logEntry.copy(dose = if (it.isEmpty()) null else it) },
+                    label = "Liều dùng",
                     modifier = Modifier.weight(1f),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    shape = MaterialTheme.shapes.medium
+                    onVoiceResult = { handleVoiceInput("dose", it) }
                 )
-                OutlinedTextField(
+                VoiceEnabledTextField(
                     value = logEntry.time ?: "",
-                    onValueChange = { logEntry = logEntry.copy(time = it.ifEmpty { null }) },
-                    label = { Text("Giờ giấc") },
+                    onValueChange = { logEntry = logEntry.copy(time = if (it.isEmpty()) null else it) },
+                    label = "Giờ giấc",
                     modifier = Modifier.weight(1f),
                     placeholder = { Text("07:30") },
-                    shape = MaterialTheme.shapes.medium
+                    onVoiceResult = { handleVoiceInput("time", it) }
                 )
             }
             Spacer(modifier = Modifier.height(12.dp))
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(
+                VoiceEnabledTextField(
                     value = bgBeforeStr,
                     onValueChange = { input ->
                         if (input.isEmpty() || input.toDoubleOrNull() != null || input.endsWith(".")) {
@@ -191,12 +231,12 @@ fun SessionEntryCard(
                             logEntry = logEntry.copy(bgBefore = input.toDoubleOrNull())
                         }
                     },
-                    label = { Text("ĐH Trước") },
+                    label = "ĐH Trước",
                     modifier = Modifier.weight(1f),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    shape = MaterialTheme.shapes.medium
+                    onVoiceResult = { handleVoiceInput("bgBefore", it) }
                 )
-                OutlinedTextField(
+                VoiceEnabledTextField(
                     value = bgAfterStr,
                     onValueChange = { input ->
                         if (input.isEmpty() || input.toDoubleOrNull() != null || input.endsWith(".")) {
@@ -204,67 +244,63 @@ fun SessionEntryCard(
                             logEntry = logEntry.copy(bgAfter = input.toDoubleOrNull())
                         }
                     },
-                    label = { Text("ĐH Sau 2h") },
+                    label = "ĐH Sau 2h",
                     modifier = Modifier.weight(1f),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    shape = MaterialTheme.shapes.medium
+                    onVoiceResult = { handleVoiceInput("bgAfter", it) }
                 )
             }
             Spacer(modifier = Modifier.height(12.dp))
 
             // --- HA tâm thu ---
-            OutlinedTextField(
+            VoiceEnabledTextField(
                 value = logEntry.bpSys?.toString() ?: "",
                 onValueChange = {
                     val v = it.toIntOrNull()
                     logEntry = logEntry.copy(bpSys = v)
                 },
-                label = { Text("HA tâm thu (mmHg)") },
-                modifier = Modifier.fillMaxWidth(),
+                label = "HA tâm thu (mmHg)",
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                shape = MaterialTheme.shapes.medium
+                onVoiceResult = { handleVoiceInput("bpSys", it) }
             )
 
             Spacer(modifier = Modifier.height(8.dp))
 
             // --- HA tâm trương ---
-            OutlinedTextField(
+            VoiceEnabledTextField(
                 value = logEntry.bpDia?.toString() ?: "",
                 onValueChange = {
                     val v = it.toIntOrNull()
                     logEntry = logEntry.copy(bpDia = v)
                 },
-                label = { Text("HA tâm trương (mmHg)") },
-                modifier = Modifier.fillMaxWidth(),
+                label = "HA tâm trương (mmHg)",
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                shape = MaterialTheme.shapes.medium
+                onVoiceResult = { handleVoiceInput("bpDia", it) }
             )
 
             Spacer(modifier = Modifier.height(8.dp))
 
             // --- Nhịp tim ---
-            OutlinedTextField(
+            VoiceEnabledTextField(
                 value = logEntry.heartRate?.toString() ?: "",
                 onValueChange = {
                     val v = it.toIntOrNull()
                     logEntry = logEntry.copy(heartRate = v)
                 },
-                label = { Text("Nhịp tim (lần/phút)") },
-                modifier = Modifier.fillMaxWidth(),
+                label = "Nhịp tim (lần/phút)",
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                shape = MaterialTheme.shapes.medium
+                onVoiceResult = { handleVoiceInput("heartRate", it) }
             )
 
             Spacer(modifier = Modifier.height(8.dp))
 
             // --- Triệu chứng / Ghi chú ---
-            OutlinedTextField(
+            VoiceEnabledTextField(
                 value = logEntry.note ?: "",
-                onValueChange = { logEntry = logEntry.copy(note = it.ifEmpty { null }) },
-                label = { Text("Triệu chứng / Ghi chú thêm") },
-                modifier = Modifier.fillMaxWidth(),
+                onValueChange = { logEntry = logEntry.copy(note = if (it.isEmpty()) null else it) },
+                label = "Triệu chứng / Ghi chú thêm",
                 minLines = 2,
-                shape = MaterialTheme.shapes.medium
+                onVoiceResult = { handleVoiceInput("note", it) }
             )
             Spacer(modifier = Modifier.height(20.dp))
 
@@ -280,4 +316,53 @@ fun SessionEntryCard(
             }
         }
     }
+}
+
+@Composable
+fun VoiceEnabledTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    modifier: Modifier = Modifier,
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    onVoiceResult: (String) -> Unit,
+    placeholder: @Composable (() -> Unit)? = null,
+    minLines: Int = 1
+) {
+    val launcher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult(),
+        onResult = { result ->
+            if (result.resultCode == Activity.RESULT_OK) {
+                val data = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+                data?.get(0)?.let { onVoiceResult(it) }
+            }
+        }
+    )
+
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(label) },
+        modifier = modifier.fillMaxWidth(),
+        keyboardOptions = keyboardOptions,
+        placeholder = placeholder,
+        minLines = minLines,
+        trailingIcon = {
+            IconButton(onClick = {
+                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, "vi-VN")
+                    putExtra(RecognizerIntent.EXTRA_PROMPT, "Đang nghe: $label...")
+                }
+                launcher.launch(intent)
+            }) {
+                Icon(
+                    imageVector = Icons.Default.Mic, 
+                    contentDescription = "Giọng nói",
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+        },
+        shape = MaterialTheme.shapes.medium
+    )
 }
