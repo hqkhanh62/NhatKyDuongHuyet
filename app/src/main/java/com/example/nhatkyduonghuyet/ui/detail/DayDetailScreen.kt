@@ -1,40 +1,27 @@
 package com.example.nhatkyduonghuyet.ui.detail
 
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
+import android.app.Activity
+import android.content.Intent
+import android.speech.RecognizerIntent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.MutableState
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.example.nhatkyduonghuyet.data.local.entity.LogEntry
 import com.example.nhatkyduonghuyet.viewmodel.LogEntryViewModel
+import java.text.SimpleDateFormat
+import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -117,6 +104,38 @@ fun SessionEntryCard(
         mutableStateOf(logEntry.bgAfter?.toString() ?: "")
     }
 
+    // Logic xử lý giọng nói
+    fun handleVoiceResult(field: String, speech: String) {
+        val currentTime = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
+        var updatedEntry = logEntry.copy()
+        
+        when (field) {
+            "medType" -> updatedEntry = updatedEntry.copy(medType = speech, time = currentTime)
+            "dose" -> updatedEntry = updatedEntry.copy(dose = speech, time = currentTime)
+            "time" -> updatedEntry = updatedEntry.copy(time = speech)
+            "bgBefore" -> {
+                val value = speech.replace(",", ".").filter { it.isDigit() || it == '.' }.toDoubleOrNull()
+                if (value != null) {
+                    updatedEntry = updatedEntry.copy(bgBefore = value)
+                    bgBeforeText = value.toString()
+                }
+            }
+            "bgAfter" -> {
+                val value = speech.replace(",", ".").filter { it.isDigit() || it == '.' }.toDoubleOrNull()
+                if (value != null) {
+                    updatedEntry = updatedEntry.copy(bgAfter = value)
+                    bgAfterText = value.toString()
+                }
+            }
+            "bpSys" -> speech.filter { it.isDigit() }.toIntOrNull()?.let { updatedEntry = updatedEntry.copy(bpSys = it) }
+            "bpDia" -> speech.filter { it.isDigit() }.toIntOrNull()?.let { updatedEntry = updatedEntry.copy(bpDia = it) }
+            "note" -> updatedEntry = updatedEntry.copy(note = speech)
+        }
+        
+        logEntry = updatedEntry
+        onSave(updatedEntry) // Tự động lưu
+    }
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -129,147 +148,103 @@ fun SessionEntryCard(
             )
             Spacer(modifier = Modifier.height(8.dp))
 
-            OutlinedTextField(
+            VoiceEnabledTextField(
                 value = logEntry.medType ?: "",
-                onValueChange = {
-                    logEntry = logEntry.copy(
-                        medType = it.ifEmpty { null }
-                    )
-                },
-                label = { Text("Loại insulin/thuốc") },
-                modifier = Modifier.fillMaxWidth()
+                onValueChange = { logEntry = logEntry.copy(medType = it.ifEmpty { null }) },
+                label = "Loại insulin/thuốc",
+                onVoiceResult = { handleVoiceResult("medType", it) }
             )
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            OutlinedTextField(
+            VoiceEnabledTextField(
                 value = logEntry.dose ?: "",
-                onValueChange = {
-                    logEntry = logEntry.copy(
-                        dose = it.ifEmpty { null }
-                    )
-                },
-                label = { Text("Liều (đv/viên)") },
-                modifier = Modifier.fillMaxWidth(),
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Number
-                )
+                onValueChange = { logEntry = logEntry.copy(dose = it.ifEmpty { null }) },
+                label = "Liều (đv/viên)",
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                onVoiceResult = { handleVoiceResult("dose", it) }
             )
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            OutlinedTextField(
+            VoiceEnabledTextField(
                 value = logEntry.time ?: "",
-                onValueChange = {
-                    logEntry = logEntry.copy(
-                        time = it.ifEmpty { null }
-                    )
-                },
-                label = { Text("Giờ tiêm/uống") },
-                modifier = Modifier.fillMaxWidth()
+                onValueChange = { logEntry = logEntry.copy(time = it.ifEmpty { null }) },
+                label = "Giờ tiêm/uống",
+                onVoiceResult = { handleVoiceResult("time", it) }
             )
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Đường huyết trước (mmol/L) – cho phép số thập phân
-            OutlinedTextField(
+            VoiceEnabledTextField(
                 value = bgBeforeText,
                 onValueChange = { newValue ->
-                    // Cho phép xóa hết
                     if (newValue.isEmpty()) {
                         bgBeforeText = ""
                         logEntry = logEntry.copy(bgBefore = null)
-                        return@OutlinedTextField
+                    } else {
+                        val normalized = newValue.replace(',', '.')
+                        val decimalRegex = Regex("""\d+(\.\d*)?""")
+                        if (normalized.matches(decimalRegex)) {
+                            bgBeforeText = newValue
+                            logEntry = logEntry.copy(bgBefore = normalized.toDoubleOrNull())
+                        }
                     }
-
-                    // Chấp nhận cả . và , làm dấu thập phân
-                    val normalized = newValue.replace(',', '.')
-
-                    // Chỉ cho phép dạng: số, số., số.x
-                    val decimalRegex = Regex("""\d+(\.\d*)?""")
-                    if (normalized.matches(decimalRegex)) {
-                        bgBeforeText = newValue
-                        logEntry = logEntry.copy(
-                            bgBefore = normalized.toDoubleOrNull()
-                        )
-                    }
-                    // Nếu không match (gõ chữ, nhiều dấu .), bỏ qua thay đổi
                 },
-                label = { Text("Đường huyết trước (mmol/L)") },
-                modifier = Modifier.fillMaxWidth(),
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Decimal
-                )
+                label = "Đường huyết trước (mmol/L)",
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                onVoiceResult = { handleVoiceResult("bgBefore", it) }
             )
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Đường huyết sau 2 giờ (mmol/L) – cho phép số thập phân
-            OutlinedTextField(
+            VoiceEnabledTextField(
                 value = bgAfterText,
                 onValueChange = { newValue ->
                     if (newValue.isEmpty()) {
                         bgAfterText = ""
                         logEntry = logEntry.copy(bgAfter = null)
-                        return@OutlinedTextField
-                    }
-
-                    val normalized = newValue.replace(',', '.')
-
-                    val decimalRegex = Regex("""\d+(\.\d*)?""")
-                    if (normalized.matches(decimalRegex)) {
-                        bgAfterText = newValue
-                        logEntry = logEntry.copy(
-                            bgAfter = normalized.toDoubleOrNull()
-                        )
+                    } else {
+                        val normalized = newValue.replace(',', '.')
+                        val decimalRegex = Regex("""\d+(\.\d*)?""")
+                        if (normalized.matches(decimalRegex)) {
+                            bgAfterText = newValue
+                            logEntry = logEntry.copy(bgAfter = normalized.toDoubleOrNull())
+                        }
                     }
                 },
-                label = { Text("Đường huyết sau 2 giờ (mmol/L)") },
-                modifier = Modifier.fillMaxWidth(),
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Decimal
-                )
+                label = "Đường huyết sau 2 giờ (mmol/L)",
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                onVoiceResult = { handleVoiceResult("bgAfter", it) }
             )
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            OutlinedTextField(
+            VoiceEnabledTextField(
                 value = logEntry.note ?: "",
-                onValueChange = {
-                    logEntry = logEntry.copy(
-                        note = it.ifEmpty { null }
-                    )
-                },
-                label = { Text("Triệu chứng/Ghi chú") },
-                modifier = Modifier.fillMaxWidth()
+                onValueChange = { logEntry = logEntry.copy(note = it.ifEmpty { null }) },
+                label = "Triệu chứng/Ghi chú",
+                onVoiceResult = { handleVoiceResult("note", it) }
             )
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            OutlinedTextField(
+            VoiceEnabledTextField(
                 value = logEntry.bpSys?.toString() ?: "",
-                onValueChange = {
-                    logEntry = logEntry.copy(
-                        bpSys = it.toIntOrNull()
-                    )
-                },
-                label = { Text("Huyết áp tâm thu (mmHg)") },
-                modifier = Modifier.fillMaxWidth(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                onValueChange = { logEntry = logEntry.copy(bpSys = it.toIntOrNull()) },
+                label = "Huyết áp tâm thu (mmHg)",
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                onVoiceResult = { handleVoiceResult("bpSys", it) }
             )
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            OutlinedTextField(
+            VoiceEnabledTextField(
                 value = logEntry.bpDia?.toString() ?: "",
-                onValueChange = {
-                    logEntry = logEntry.copy(
-                        bpDia = it.toIntOrNull()
-                    )
-                },
-                label = { Text("Huyết áp tâm trương (mmHg)") },
-                modifier = Modifier.fillMaxWidth(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                onValueChange = { logEntry = logEntry.copy(bpDia = it.toIntOrNull()) },
+                label = "Huyết áp tâm trương (mmHg)",
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                onVoiceResult = { handleVoiceResult("bpDia", it) }
             )
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -282,4 +257,44 @@ fun SessionEntryCard(
             }
         }
     }
+}
+
+@Composable
+fun VoiceEnabledTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    modifier: Modifier = Modifier,
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    onVoiceResult: (String) -> Unit
+) {
+    val launcher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult(),
+        onResult = { result ->
+            if (result.resultCode == Activity.RESULT_OK) {
+                val data = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+                data?.get(0)?.let { onVoiceResult(it) }
+            }
+        }
+    )
+
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(label) },
+        modifier = modifier.fillMaxWidth(),
+        keyboardOptions = keyboardOptions,
+        trailingIcon = {
+            IconButton(onClick = {
+                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, "vi-VN")
+                    putExtra(RecognizerIntent.EXTRA_PROMPT, "Đang nghe: $label...")
+                }
+                launcher.launch(intent)
+            }) {
+                Icon(Icons.Default.Mic, contentDescription = "Giọng nói", tint = MaterialTheme.colorScheme.primary)
+            }
+        }
+    )
 }
