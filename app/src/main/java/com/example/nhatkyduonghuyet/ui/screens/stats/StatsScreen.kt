@@ -47,7 +47,7 @@ fun StatsScreen(
         Text("📈 Biểu đồ", style = MaterialTheme.typography.titleLarge)
 
         Box(modifier = Modifier.height(250.dp)) {
-            LineChartV2(chartData)
+            LineChartV2(data = chartData)
         }
     }
 }
