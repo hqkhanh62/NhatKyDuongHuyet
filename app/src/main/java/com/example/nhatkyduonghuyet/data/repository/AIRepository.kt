@@ -68,7 +68,7 @@ class AIRepository @Inject constructor(
             medType = "AI Automated",
             time = timeSdf.format(now),
             bgBefore = value.toDouble() / 18.0, // Convert mg/dL to mmol/L
-            note = "AI Predicted value: ${value.toInt()} mg/dL"
+            note = "AI Predicted value: ${"%.1f".format(value / 18.0)} mmol/L"
         )
         dao.upsert(entry)
     }

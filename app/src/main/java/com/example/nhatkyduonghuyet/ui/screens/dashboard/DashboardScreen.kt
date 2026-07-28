@@ -237,7 +237,7 @@ fun DashboardScreen(
                             Spacer(modifier = Modifier.height(16.dp))
                             
                             if (chartData.isNotEmpty() && (showBefore || showAfter || showDaily)) {
-                                Box(modifier = Modifier.height(240.dp)) {
+                                Box(modifier = Modifier.height(180.dp)) {
                                     LineChartV2(
                                         data = chartData,
                                         showBefore = showBefore,
@@ -249,7 +249,7 @@ fun DashboardScreen(
                                 Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .height(240.dp),
+                                        .height(180.dp),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Text(
@@ -306,7 +306,7 @@ fun GlucoseAiCard(state: DashboardAiState) {
             Spacer(modifier = Modifier.height(12.dp))
 
             Text(
-                "${animatedValue.toInt()} mg/dL",
+                "${(animatedValue / 18.0f).toInt()}.${((animatedValue / 18.0f) * 10 % 10).toInt()} mmol/L",
                 style = MaterialTheme.typography.displayMedium.copy(fontWeight = FontWeight.Black),
                 color = Color(0xFF0D47A1)
             )
@@ -349,7 +349,7 @@ fun PremiumChartSection(chartData: List<MultiSeriesPoint>) {
             )
             Spacer(modifier = Modifier.height(16.dp))
 
-            Box(modifier = Modifier.height(200.dp).fillMaxWidth()) {
+            Box(modifier = Modifier.height(150.dp).fillMaxWidth()) {
                 AndroidView(
                     modifier = Modifier.fillMaxSize(),
                     factory = { context ->
@@ -368,11 +368,11 @@ fun PremiumChartSection(chartData: List<MultiSeriesPoint>) {
                     },
                     update = { chart ->
                         val entries = chartData.takeLast(10).mapIndexed { i, point ->
-                            Entry(i.toFloat(), (point.avgDaily ?: 0.0).toFloat() * 18f) // Convert to mg/dL for chart
+                            Entry(i.toFloat(), (point.avgDaily ?: 0.0).toFloat()) // Already in mmol/L
                         }
                         
                         if (entries.isNotEmpty()) {
-                            val dataSet = LineDataSet(entries, "Glucose (mg/dL)").apply {
+                            val dataSet = LineDataSet(entries, "Glucose (mmol/L)").apply {
                                 val primaryColor = Color(0xFF0D47A1).toArgb()
                                 setColor(primaryColor)
                                 valueTextColor = android.graphics.Color.BLACK
