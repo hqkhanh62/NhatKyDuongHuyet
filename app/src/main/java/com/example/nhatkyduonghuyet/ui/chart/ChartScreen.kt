@@ -65,7 +65,11 @@ fun ChartScreen(
         val startIdx = floor(chartScrollState.value / pointWidth).toInt().coerceIn(0, totalPoints - 1)
         val endIdx = ceil((chartScrollState.value + screenWidth) / pointWidth).toInt().coerceIn(0, totalPoints - 1)
         
-        if (startIdx <= endIdx) dailyPoints.slice(startIdx..endIdx) else emptyList()
+        if (startIdx <= endIdx) {
+            val end = endIdx.coerceAtMost(totalPoints - 1)
+            val start = startIdx.coerceAtMost(end)
+            dailyPoints.slice(start..end)
+        } else emptyList()
     }
 
     Scaffold(
@@ -113,20 +117,20 @@ fun ChartScreen(
                         color = Color.Gray
                     )
                 } else {
+                    val density = LocalDensity.current
+                    val screenWidthDp = with(density) { containerWidthPx.toDp() }
+                    val canvasWidth = if (dailyPoints.size > 1) screenWidthDp * zoomScale else screenWidthDp
+
+                    val state = rememberTransformableState { zoomChange, _, _ ->
+                        zoomScale = (zoomScale * zoomChange).coerceIn(1f, 10f)
+                    }
+
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
                             .horizontalScroll(chartScrollState)
-                            .transformable(
-                                state = rememberTransformableState { zoomChange, _, _ ->
-                                    zoomScale = (zoomScale * zoomChange).coerceIn(1f, 10f)
-                                }
-                            )
+                            .transformable(state = state, lockRotationOnZoomPan = true)
                     ) {
-                        val density = LocalDensity.current
-                        val screenWidthDp = with(density) { containerWidthPx.toDp() }
-                        val canvasWidth = if (dailyPoints.size > 1) screenWidthDp * zoomScale else screenWidthDp
-
                         PremiumFlexibleLineChart(
                             points = dailyPoints,
                             showMorning = showMorning,
@@ -317,7 +321,7 @@ fun PremiumFlexibleLineChart(
             drawLine(
                 color = Color.LightGray.copy(alpha = 0.3f),
                 start = Offset(xStart, y),
-                end = xEnd.let { Offset(it, y) },
+                end = Offset(xEnd, y),
                 strokeWidth = 1f
             )
         }
