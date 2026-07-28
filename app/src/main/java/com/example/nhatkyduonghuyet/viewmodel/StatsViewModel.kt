@@ -2,10 +2,13 @@ package com.example.nhatkyduonghuyet.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.nhatkyduonghuyet.ai.PredictionResult
+import com.example.nhatkyduonghuyet.data.repository.AIRepository
 import com.example.nhatkyduonghuyet.data.repository.LogRepository
 import com.example.nhatkyduonghuyet.data.local.entity.LogEntry
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 import javax.inject.Inject
@@ -17,10 +20,31 @@ enum class TimeFilter(val days: Int, val label: String) {
     ALL(Int.MAX_VALUE, "Tất cả")
 }
 
+data class DashboardAiState(
+    val prediction: Float = 0f,
+    val risk: String = "Calculating..."
+)
+
 @HiltViewModel
 class StatsViewModel @Inject constructor(
-    private val repo: LogRepository
+    private val repo: LogRepository,
+    private val aiRepo: AIRepository
 ) : ViewModel() {
+
+    private val _aiState = MutableStateFlow(DashboardAiState())
+    val aiState: StateFlow<DashboardAiState> = _aiState.asStateFlow()
+
+    fun predict(data: FloatArray) {
+        viewModelScope.launch {
+            val result = aiRepo.runPrediction(data)
+            _aiState.value = _aiState.value.copy(
+                prediction = result.value,
+                risk = result.risk
+            )
+            // Optionally save
+            // aiRepo.savePrediction(result.value)
+        }
+    }
 
     private val _timeFilter = MutableStateFlow(TimeFilter.LAST_7_DAYS)
     val timeFilter: StateFlow<TimeFilter> = _timeFilter.asStateFlow()

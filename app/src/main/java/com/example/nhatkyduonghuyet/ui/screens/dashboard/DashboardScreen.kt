@@ -1,23 +1,41 @@
 package com.example.nhatkyduonghuyet.ui.screens.dashboard
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.example.nhatkyduonghuyet.ui.components.LineChartV2
 import com.example.nhatkyduonghuyet.ui.components.DonutChart
 import com.example.nhatkyduonghuyet.ui.components.DonutChartData
+import com.example.nhatkyduonghuyet.viewmodel.DashboardAiState
+import com.example.nhatkyduonghuyet.viewmodel.MultiSeriesPoint
 import com.example.nhatkyduonghuyet.viewmodel.StatsViewModel
 import com.example.nhatkyduonghuyet.viewmodel.TimeFilter
+import com.github.mikephil.charting.charts.LineChart
+import com.github.mikephil.charting.components.XAxis
+import com.github.mikephil.charting.data.Entry
+import com.github.mikephil.charting.data.LineData
+import com.github.mikephil.charting.data.LineDataSet
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -29,10 +47,26 @@ fun DashboardScreen(
     val totalCount by viewModel.totalCount.collectAsState()
     val chartData by viewModel.chartData.collectAsState()
     val timeFilter by viewModel.timeFilter.collectAsState()
+    val aiState by viewModel.aiState.collectAsState()
     
     val showBefore by viewModel.showBefore.collectAsState()
     val showAfter by viewModel.showAfter.collectAsState()
     val showDaily by viewModel.showDaily.collectAsState()
+
+    // Auto AI Update loop
+    LaunchedEffect(Unit) {
+        while (true) {
+            val fakeInput = floatArrayOf(
+                (70..180).random().toFloat(),
+                (70..180).random().toFloat(),
+                (70..180).random().toFloat(),
+                (70..180).random().toFloat(),
+                (70..180).random().toFloat()
+            )
+            viewModel.predict(fakeInput)
+            delay(5000)
+        }
+    }
 
     val donutData = remember(stats) {
         listOf(
@@ -43,161 +77,318 @@ fun DashboardScreen(
         )
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Dashboard") },
-                actions = {
-                    IconButton(onClick = onViewDetails) {
-                        Icon(Icons.Default.List, contentDescription = "Danh sách")
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    listOf(Color(0xFF0D47A1), Color(0xFF1E88E5), Color(0xFFF5F5F5))
+                )
+            )
+    ) {
+        Scaffold(
+            containerColor = Color.Transparent,
+            topBar = {
+                CenterAlignedTopAppBar(
+                    title = { 
+                        Text(
+                            "Glucose AI Monitor", 
+                            color = Color.White,
+                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
+                        ) 
+                    },
+                    actions = {
+                        IconButton(onClick = onViewDetails) {
+                            Icon(Icons.Default.List, contentDescription = "Danh sách", tint = Color.White)
+                        }
+                    },
+                    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent)
+                )
+            }
+        ) { padding ->
+            LazyColumn(
+                modifier = Modifier
+                    .padding(padding)
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(20.dp),
+                contentPadding = PaddingValues(bottom = 24.dp)
+            ) {
+                item {
+                    AnimatedVisibility(visible = true) {
+                        GlucoseAiCard(aiState)
                     }
                 }
-            )
-        }
-    ) { padding ->
-        LazyColumn(
-            modifier = Modifier
-                .padding(padding)
-                .fillMaxSize()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Tổng quan sức khỏe",
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold
-                    )
-                    
-                    TimeFilterDropdown(
-                        currentFilter = timeFilter,
-                        onFilterSelected = { viewModel.setTimeFilter(it) }
-                    )
-                }
-            }
 
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    StatCard(
-                        title = "Trung bình",
-                        value = String.format("%.1f", stats.avg),
-                        unit = "mmol/L",
-                        modifier = Modifier.weight(1f)
-                    )
-                    StatCard(
-                        title = "HbA1c ước tính",
-                        value = String.format("%.1f", stats.hba1c),
-                        unit = "%",
-                        modifier = Modifier.weight(1f),
-                        color = Color(0xFF9C27B0)
-                    )
+                item {
+                    PremiumChartSection(chartData)
                 }
-            }
 
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    StatCard(
-                        title = "Thấp nhất",
-                        value = String.format("%.1f", stats.min),
-                        unit = "mmol/L",
-                        modifier = Modifier.weight(1f),
-                        color = Color(0xFF2196F3)
-                    )
-                    StatCard(
-                        title = "Cao nhất",
-                        value = String.format("%.1f", stats.max),
-                        unit = "mmol/L",
-                        modifier = Modifier.weight(1f),
-                        color = Color(0xFFF44336)
-                    )
-                }
-            }
-
-            item {
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Phân bổ đường huyết",
-                            style = MaterialTheme.typography.titleMedium,
+                            text = "Health Overview",
+                            style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
-                            modifier = Modifier.align(Alignment.Start)
+                            color = Color.Black.copy(alpha = 0.7f)
                         )
-                        Spacer(modifier = Modifier.height(16.dp))
                         
-                        DonutChart(
-                            data = donutData,
-                            modifier = Modifier.fillMaxWidth()
+                        TimeFilterDropdown(
+                            currentFilter = timeFilter,
+                            onFilterSelected = { viewModel.setTimeFilter(it) }
                         )
                     }
                 }
-            }
 
-            item {
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(
-                            text = "Xu hướng",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        StatCard(
+                            title = "Trung bình",
+                            value = String.format("%.1f", stats.avg),
+                            unit = "mmol/L",
+                            modifier = Modifier.weight(1f)
                         )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        
-                        // Checkbox filters
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            ChartToggleRow("TB Trước ăn", showBefore, Color(0xFF2196F3)) { viewModel.toggleBefore() }
-                            ChartToggleRow("TB Sau ăn", showAfter, Color(0xFFF44336)) { viewModel.toggleAfter() }
-                            ChartToggleRow("Trung bình ngày", showDaily, Color(0xFF4CAF50)) { viewModel.toggleDaily() }
-                        }
+                        StatCard(
+                            title = "HbA1c ước tính",
+                            value = String.format("%.1f", stats.hba1c),
+                            unit = "%",
+                            modifier = Modifier.weight(1f),
+                            color = Color(0xFF9C27B0)
+                        )
+                    }
+                }
 
-                        Spacer(modifier = Modifier.height(16.dp))
-                        
-                        if (chartData.isNotEmpty() && (showBefore || showAfter || showDaily)) {
-                            Box(modifier = Modifier.height(240.dp)) {
-                                LineChartV2(
-                                    data = chartData,
-                                    showBefore = showBefore,
-                                    showAfter = showAfter,
-                                    showDaily = showDaily
-                                )
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        StatCard(
+                            title = "Thấp nhất",
+                            value = String.format("%.1f", stats.min),
+                            unit = "mmol/L",
+                            modifier = Modifier.weight(1f),
+                            color = Color(0xFF2196F3)
+                        )
+                        StatCard(
+                            title = "Cao nhất",
+                            value = String.format("%.1f", stats.max),
+                            unit = "mmol/L",
+                            modifier = Modifier.weight(1f),
+                            color = Color(0xFFF44336)
+                        )
+                    }
+                }
+
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(24.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color.White)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "Phân bổ đường huyết",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.align(Alignment.Start)
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            
+                            DonutChart(
+                                data = donutData,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
+                }
+
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(24.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color.White)
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(
+                                text = "Xu hướng chi tiết",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            
+                            // Checkbox filters
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                ChartToggleRow("TB Trước ăn", showBefore, Color(0xFF2196F3)) { viewModel.toggleBefore() }
+                                ChartToggleRow("TB Sau ăn", showAfter, Color(0xFFF44336)) { viewModel.toggleAfter() }
+                                ChartToggleRow("Trung bình ngày", showDaily, Color(0xFF4CAF50)) { viewModel.toggleDaily() }
                             }
-                        } else {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(240.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = if (chartData.isEmpty()) "Chưa có đủ dữ liệu" else "Chọn ít nhất 1 đường để hiển thị",
-                                    color = Color.Gray
-                                )
+
+                            Spacer(modifier = Modifier.height(16.dp))
+                            
+                            if (chartData.isNotEmpty() && (showBefore || showAfter || showDaily)) {
+                                Box(modifier = Modifier.height(240.dp)) {
+                                    LineChartV2(
+                                        data = chartData,
+                                        showBefore = showBefore,
+                                        showAfter = showAfter,
+                                        showDaily = showDaily
+                                    )
+                                }
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(240.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = if (chartData.isEmpty()) "Chưa có đủ dữ liệu" else "Chọn ít nhất 1 đường để hiển thị",
+                                        color = Color.Gray
+                                    )
+                                }
                             }
                         }
                     }
                 }
+
+                item {
+                    Button(
+                        onClick = onViewDetails,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0D47A1))
+                    ) {
+                        Text("Xem nhật ký chi tiết ($totalCount bản ghi)", color = Color.White)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun GlucoseAiCard(state: DashboardAiState) {
+    val animatedValue by animateFloatAsState(
+        targetValue = state.prediction,
+        animationSpec = tween(1000),
+        label = "GlucoseAnimation"
+    )
+
+    Card(
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(8.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(24.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Favorite, contentDescription = null, tint = Color(0xFF0D47A1))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    "AI PREDICTION",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = Color.Gray,
+                    letterSpacing = 1.sp
+                )
             }
 
-            item {
-                Button(
-                    onClick = onViewDetails,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Xem nhật ký chi tiết ($totalCount bản ghi)")
-                }
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Text(
+                "${animatedValue.toInt()} mg/dL",
+                style = MaterialTheme.typography.displayMedium.copy(fontWeight = FontWeight.Black),
+                color = Color(0xFF0D47A1)
+            )
+
+            val riskColor = when {
+                state.risk.contains("Low") -> Color(0xFF2196F3)
+                state.risk.contains("High") -> Color(0xFFF44336)
+                else -> Color(0xFF4CAF50)
+            }
+
+            Surface(
+                color = riskColor.copy(alpha = 0.1f),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Text(
+                    text = state.risk,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                    color = riskColor,
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun PremiumChartSection(chartData: List<MultiSeriesPoint>) {
+    Card(
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(4.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                "Real-time Glucose Trend",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Box(modifier = Modifier.height(200.dp).fillMaxWidth()) {
+                AndroidView(
+                    modifier = Modifier.fillMaxSize(),
+                    factory = { context ->
+                        LineChart(context).apply {
+                            description.isEnabled = false
+                            setTouchEnabled(true)
+                            isDragEnabled = true
+                            setScaleEnabled(true)
+                            setPinchZoom(true)
+                            xAxis.position = XAxis.XAxisPosition.BOTTOM
+                            xAxis.setDrawGridLines(false)
+                            axisRight.isEnabled = false
+                            axisLeft.setDrawGridLines(true)
+                            legend.isEnabled = true
+                        }
+                    },
+                    update = { chart ->
+                        val entries = chartData.takeLast(10).mapIndexed { i, point ->
+                            Entry(i.toFloat(), (point.avgDaily ?: 0.0).toFloat() * 18f) // Convert to mg/dL for chart
+                        }
+                        
+                        if (entries.isNotEmpty()) {
+                            val dataSet = LineDataSet(entries, "Glucose (mg/dL)").apply {
+                                val primaryColor = Color(0xFF0D47A1).toArgb()
+                                setColor(primaryColor)
+                                valueTextColor = android.graphics.Color.BLACK
+                                lineWidth = 3f
+                                setDrawCircles(true)
+                                setCircleColor(primaryColor)
+                                circleRadius = 5f
+                                setDrawFilled(true)
+                                fillAlpha = 50
+                                mode = LineDataSet.Mode.CUBIC_BEZIER
+                            }
+                            chart.data = LineData(dataSet)
+                            chart.invalidate()
+                        }
+                    }
+                )
             }
         }
     }
@@ -242,7 +433,11 @@ fun TimeFilterDropdown(
     var expanded by remember { mutableStateOf(false) }
 
     Box {
-        OutlinedButton(onClick = { expanded = true }) {
+        OutlinedButton(
+            onClick = { expanded = true },
+            shape = RoundedCornerShape(12.dp),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.Black.copy(alpha = 0.6f))
+        ) {
             Text(currentFilter.label)
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
@@ -264,19 +459,24 @@ fun StatCard(
     title: String,
     value: String,
     unit: String = "",
-    color: Color = MaterialTheme.colorScheme.primary,
+    color: Color = Color(0xFF0D47A1),
     modifier: Modifier = Modifier
 ) {
-    Card(modifier = modifier) {
+    Card(
+        modifier = modifier,
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(2.dp)
+    ) {
         Column(
             modifier = Modifier.padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text(text = title, style = MaterialTheme.typography.bodyMedium)
+            Text(text = title, style = MaterialTheme.typography.labelMedium, color = Color.Gray)
             Row(verticalAlignment = Alignment.Bottom) {
                 Text(
                     text = value,
-                    style = MaterialTheme.typography.headlineMedium,
+                    style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = color
                 )
@@ -284,8 +484,9 @@ fun StatCard(
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
                         text = unit,
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(bottom = 4.dp)
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.padding(bottom = 2.dp),
+                        color = Color.Gray
                     )
                 }
             }
