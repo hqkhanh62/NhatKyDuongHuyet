@@ -1,22 +1,22 @@
 [
     {
-        "merged": "com.example.nhatkyduonghuyet.app-merged_res-64:/mipmap-anydpi-v26_ic_launcher.xml.flat",
-        "source": "com.example.nhatkyduonghuyet.app-main-66:/mipmap-anydpi-v26/ic_launcher.xml"
+        "merged": "com.example.nhatkyduonghuyet.app-merged_res-65:/mipmap-anydpi-v26_ic_launcher_round.xml.flat",
+        "source": "com.example.nhatkyduonghuyet.app-main-67:/mipmap-anydpi-v26/ic_launcher_round.xml"
     },
     {
-        "merged": "com.example.nhatkyduonghuyet.app-merged_res-64:/xml_backup_rules.xml.flat",
-        "source": "com.example.nhatkyduonghuyet.app-main-66:/xml/backup_rules.xml"
+        "merged": "com.example.nhatkyduonghuyet.app-merged_res-65:/xml_backup_rules.xml.flat",
+        "source": "com.example.nhatkyduonghuyet.app-main-67:/xml/backup_rules.xml"
     },
     {
-        "merged": "com.example.nhatkyduonghuyet.app-merged_res-64:/drawable_ic_launcher_foreground.xml.flat",
-        "source": "com.example.nhatkyduonghuyet.app-main-66:/drawable/ic_launcher_foreground.xml"
+        "merged": "com.example.nhatkyduonghuyet.app-merged_res-65:/mipmap-anydpi-v26_ic_launcher.xml.flat",
+        "source": "com.example.nhatkyduonghuyet.app-main-67:/mipmap-anydpi-v26/ic_launcher.xml"
     },
     {
-        "merged": "com.example.nhatkyduonghuyet.app-merged_res-64:/xml_data_extraction_rules.xml.flat",
-        "source": "com.example.nhatkyduonghuyet.app-main-66:/xml/data_extraction_rules.xml"
+        "merged": "com.example.nhatkyduonghuyet.app-merged_res-65:/drawable_ic_launcher_foreground.xml.flat",
+        "source": "com.example.nhatkyduonghuyet.app-main-67:/drawable/ic_launcher_foreground.xml"
     },
     {
-        "merged": "com.example.nhatkyduonghuyet.app-merged_res-64:/mipmap-anydpi-v26_ic_launcher_round.xml.flat",
-        "source": "com.example.nhatkyduonghuyet.app-main-66:/mipmap-anydpi-v26/ic_launcher_round.xml"
+        "merged": "com.example.nhatkyduonghuyet.app-merged_res-65:/xml_data_extraction_rules.xml.flat",
+        "source": "com.example.nhatkyduonghuyet.app-main-67:/xml/data_extraction_rules.xml"
     }
 ]
