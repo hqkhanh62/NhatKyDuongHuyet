@@ -40,8 +40,8 @@ class AIRepository @Inject constructor(
         return fileChannel.map(FileChannel.MapMode.READ_ONLY, startOffset, declaredLength)
     }
 
-    suspend fun runPrediction(raw: FloatArray): PredictionResult = withContext(Dispatchers.Default) {
-        val normalized = Normalizer.normalize(raw)
+    suspend fun runPrediction(rawMmol: FloatArray): PredictionResult = withContext(Dispatchers.Default) {
+        val normalized = Normalizer.normalize(rawMmol)
         
         // Input: [1, 5, 1] for LSTM
         val input = Array(1) { Array(5) { FloatArray(1) } }
@@ -53,26 +53,23 @@ class AIRepository @Inject constructor(
 
         interpreter?.run(input, output)
 
-        // Model predicts normalized value 0-1, scale to max mmol/L (~20)
-        val predictionMmol = output[0][0] * 20f 
+        val predictionMmol = Normalizer.denormalize(output[0][0])
         val risk = RiskDetector.detectRisk(predictionMmol)
 
-        PredictionResult(predictionMmol * 18f, risk) // Return internal mg/dL for Dashboard to keep compatibility
+        PredictionResult(predictionMmol, risk)
     }
     
-    suspend fun savePrediction(valueMgDl: Float) = withContext(Dispatchers.IO) {
+    suspend fun savePrediction(predictionMmol: Float) = withContext(Dispatchers.IO) {
         val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
         val timeSdf = SimpleDateFormat("HH:mm", Locale.getDefault())
         val now = Date()
-        
-        val predictionMmol = valueMgDl / 18.0
         
         val entry = LogEntry(
             date = sdf.format(now),
             session = "AI Prediction",
             medType = "AI Automated",
             time = timeSdf.format(now),
-            bgBefore = predictionMmol,
+            bgBefore = predictionMmol.toDouble(),
             note = "AI Predicted value: ${String.format(Locale.getDefault(), "%.1f", predictionMmol)} mmol/L"
         )
         dao.upsert(entry)

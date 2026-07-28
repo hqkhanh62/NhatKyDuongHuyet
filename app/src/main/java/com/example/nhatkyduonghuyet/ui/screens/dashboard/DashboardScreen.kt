@@ -56,9 +56,9 @@ fun DashboardScreen(
     // Auto AI Update loop
     LaunchedEffect(Unit) {
         while (true) {
-            // Simulated sensor data
-            val morningInput = floatArrayOf(90f, 95f, 100f, 110f, 105f)
-            val afternoonInput = floatArrayOf(140f, 150f, 160f, 155f, 145f)
+            // Simulated sensor data in mmol/L
+            val morningInput = floatArrayOf(5.0f, 5.3f, 5.8f, 6.1f, 5.7f)
+            val afternoonInput = floatArrayOf(7.8f, 8.2f, 9.1f, 8.5f, 8.0f)
             
             viewModel.updatePredictions(morningInput, afternoonInput)
             delay(5000)
@@ -310,7 +310,7 @@ fun GlucoseAiCard(label: String, prediction: Float, risk: String) {
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            val mmolValue = prediction / 18.0f
+            val mmolValue = prediction
             Text(
                 "${"%.1f".format(mmolValue)}",
                 style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Black),
