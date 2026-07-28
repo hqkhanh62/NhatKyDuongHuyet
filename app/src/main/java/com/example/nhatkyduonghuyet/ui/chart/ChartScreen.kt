@@ -1,35 +1,35 @@
 package com.example.nhatkyduonghuyet.ui.chart
 
-import androidx.compose.foundation.Canvas
+import android.view.MotionEvent
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.rememberTransformableState
-import androidx.compose.foundation.gestures.transformable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.*
-import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.navigation.NavController
 import com.example.nhatkyduonghuyet.data.local.entity.LogEntry
 import com.example.nhatkyduonghuyet.viewmodel.LogEntryViewModel
+import com.github.mikephil.charting.charts.LineChart
+import com.github.mikephil.charting.components.XAxis
+import com.github.mikephil.charting.data.Entry
+import com.github.mikephil.charting.data.LineData
+import com.github.mikephil.charting.data.LineDataSet
+import com.github.mikephil.charting.formatter.ValueFormatter
+import com.github.mikephil.charting.interfaces.datasets.ILineDataSet
+import com.github.mikephil.charting.listener.ChartTouchListener
+import com.github.mikephil.charting.listener.OnChartGestureListener
 import java.text.SimpleDateFormat
 import java.util.Locale
-import kotlin.math.ceil
-import kotlin.math.floor
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -45,31 +45,23 @@ fun ChartScreen(
     var showNight by remember { mutableStateOf(false) }
     var showDailyAvg by remember { mutableStateOf(false) }
 
-    var zoomScale by remember { mutableFloatStateOf(1f) }
-    val chartScrollState = rememberScrollState()
-    var containerWidthPx by remember { mutableIntStateOf(0) }
-
     val dailyPoints = remember(allEntries) {
         aggregateBySession(allEntries)
     }
 
-    // Dynamic calculation of visible points based on scroll and zoom
-    val visiblePoints = remember(dailyPoints, chartScrollState.value, zoomScale, containerWidthPx) {
-        if (dailyPoints.isEmpty() || containerWidthPx <= 0) return@remember dailyPoints
-        
-        val totalPoints = dailyPoints.size
-        val screenWidth = containerWidthPx.toFloat()
-        val contentWidth = screenWidth * zoomScale
-        val pointWidth = if (totalPoints > 1) contentWidth / (totalPoints - 1) else screenWidth
-        
-        val startIdx = floor(chartScrollState.value / pointWidth).toInt().coerceIn(0, totalPoints - 1)
-        val endIdx = ceil((chartScrollState.value + screenWidth) / pointWidth).toInt().coerceIn(0, totalPoints - 1)
-        
-        if (startIdx <= endIdx) {
-            val end = endIdx.coerceAtMost(totalPoints - 1)
-            val start = startIdx.coerceAtMost(end)
-            dailyPoints.slice(start..end)
-        } else emptyList()
+    var startIdxState by remember { mutableStateOf(0f) }
+    var endIdxState by remember { mutableStateOf(100f) }
+
+    val visiblePoints = remember(dailyPoints, startIdxState, endIdxState) {
+        val count = dailyPoints.size
+        if (count == 0) return@remember emptyList<SessionPoint>()
+        var s = startIdxState.toInt()
+        if (s < 0) s = 0
+        if (s >= count) s = count - 1
+        var e = endIdxState.toInt()
+        if (e < 0) e = 0
+        if (e >= count) e = count - 1
+        if (s <= e) dailyPoints.subList(s, if (e + 1 > count) count else e + 1) else emptyList()
     }
 
     Scaffold(
@@ -108,7 +100,6 @@ fun ChartScreen(
                     .fillMaxWidth()
                     .height(260.dp)
                     .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
-                    .onGloballyPositioned { containerWidthPx = it.size.width }
             ) {
                 if (dailyPoints.isEmpty()) {
                     Text(
@@ -117,48 +108,94 @@ fun ChartScreen(
                         color = Color.Gray
                     )
                 } else {
-                    val density = LocalDensity.current
-                    val screenWidthDp = with(density) { containerWidthPx.toDp() }
-                    val canvasWidth = if (dailyPoints.size > 1) screenWidthDp * zoomScale else screenWidthDp
+                    AndroidView(
+                        modifier = Modifier.fillMaxSize().padding(8.dp),
+                        factory = { context ->
+                            val chart = LineChart(context)
+                            chart.description.isEnabled = false
+                            chart.setTouchEnabled(true)
+                            chart.isDragEnabled = true
+                            chart.isScaleXEnabled = true
+                            chart.isScaleYEnabled = false
+                            chart.setPinchZoom(true)
+                            
+                            val xAxis = chart.xAxis
+                            xAxis.position = XAxis.XAxisPosition.BOTTOM
+                            xAxis.setDrawGridLines(false)
+                            xAxis.granularity = 1f
+                            xAxis.labelRotationAngle = -45f
+                            xAxis.valueFormatter = object : ValueFormatter() {
+                                override fun getFormattedValue(value: Float): String {
+                                    val i = value.toInt()
+                                    return if (i >= 0 && i < dailyPoints.size) dailyPoints[i].dateLabel else ""
+                                }
+                            }
+                            
+                            chart.axisRight.isEnabled = false
+                            val yAxis = chart.axisLeft
+                            yAxis.setDrawGridLines(true)
+                            yAxis.axisMinimum = 3f
+                            yAxis.axisMaximum = 15f
+                            
+                            chart.legend.isEnabled = true
+                            
+                            chart.onChartGestureListener = object : OnChartGestureListener {
+                                private fun update() {
+                                    startIdxState = chart.lowestVisibleX
+                                    endIdxState = chart.highestVisibleX
+                                }
+                                override fun onChartGestureStart(me: MotionEvent?, lastGesture: ChartTouchListener.ChartGesture?) {}
+                                override fun onChartGestureEnd(me: MotionEvent?, lastGesture: ChartTouchListener.ChartGesture?) { update() }
+                                override fun onChartLongPressed(me: MotionEvent?) {}
+                                override fun onChartDoubleTapped(me: MotionEvent?) {}
+                                override fun onChartSingleTapped(me: MotionEvent?) {}
+                                override fun onChartFling(me1: MotionEvent?, me2: MotionEvent?, velocityX: Float, velocityY: Float) { update() }
+                                override fun onChartScale(me: MotionEvent?, scaleX: Float, scaleY: Float) { update() }
+                                override fun onChartTranslate(me: MotionEvent?, dX: Float, dY: Float) { update() }
+                            }
+                            chart
+                        },
+                        update = { chart ->
+                            val dataSets = mutableListOf<ILineDataSet>()
+                            
+                            fun createDS(vList: List<Double?>, label: String, color: Color, isDashed: Boolean = false): LineDataSet? {
+                                val entries = mutableListOf<Entry>()
+                                for (i in 0 until vList.size) {
+                                    val v = vList[i]
+                                    if (v != null) entries.add(Entry(i.toFloat(), v.toFloat()))
+                                }
+                                if (entries.isEmpty()) return null
+                                return LineDataSet(entries, label).apply {
+                                    this.color = color.toArgb()
+                                    setCircleColor(color.toArgb())
+                                    lineWidth = 2.5f
+                                    circleRadius = 3.5f
+                                    setDrawCircleHole(false)
+                                    setDrawValues(false)
+                                    mode = LineDataSet.Mode.CUBIC_BEZIER
+                                    if (isDashed) enableDashedLine(20f, 10f, 0f)
+                                }
+                            }
 
-                    val state = rememberTransformableState { zoomChange, _, _ ->
-                        zoomScale = (zoomScale * zoomChange).coerceIn(1f, 10f)
-                    }
+                            if (showMorning) createDS(dailyPoints.map { it.avgMorning }, "Sáng", Color(0xFF2196F3))?.let { dataSets.add(it) }
+                            if (showNoon) createDS(dailyPoints.map { it.avgNoon }, "Trưa", Color(0xFFFF9800))?.let { dataSets.add(it) }
+                            if (showEvening) createDS(dailyPoints.map { it.avgEvening }, "Chiều", Color(0xFFF44336))?.let { dataSets.add(it) }
+                            if (showNight) createDS(dailyPoints.map { it.avgNight }, "Tối", Color(0xFF9C27B0))?.let { dataSets.add(it) }
+                            if (showDailyAvg) createDS(dailyPoints.map { it.avgDaily }, "TB Ngày", Color(0xFF4CAF50), true)?.let { dataSets.add(it) }
 
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .horizontalScroll(chartScrollState)
-                            .transformable(state = state, lockRotationOnZoomPan = true)
-                    ) {
-                        PremiumFlexibleLineChart(
-                            points = dailyPoints,
-                            showMorning = showMorning,
-                            showNoon = showNoon,
-                            showEvening = showEvening,
-                            showNight = showNight,
-                            showDailyAvg = showDailyAvg,
-                            modifier = Modifier
-                                .width(canvasWidth)
-                                .fillMaxHeight(),
-                            minY = 3.0,
-                            maxY = 15.0
-                        )
-                    }
-                    
-                    if (zoomScale > 1f) {
-                        Surface(
-                            modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer,
-                            shape = MaterialTheme.shapes.small
-                        ) {
-                            Text(
-                                text = "Zoom: ${String.format("%.1f", zoomScale)}x",
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                style = MaterialTheme.typography.labelSmall
-                            )
+                            if (dataSets.isNotEmpty()) {
+                                chart.data = LineData(dataSets)
+                                chart.invalidate()
+                            } else {
+                                chart.clear()
+                            }
+                            
+                            chart.post {
+                                startIdxState = chart.lowestVisibleX
+                                endIdxState = chart.highestVisibleX
+                            }
                         }
-                    }
+                    )
                 }
             }
 
@@ -197,7 +234,7 @@ fun DayInfoCard(day: SessionPoint) {
             ) {
                 Text(text = day.fullDate, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
                 Text(
-                    text = "TB Ngày: ${String.format("%.1f", day.avgDaily ?: 0.0)}",
+                    text = "TB Ngày: ${String.format(Locale.getDefault(), "%.1f", day.avgDaily ?: 0.0)}",
                     color = Color(0xFF4CAF50),
                     fontWeight = FontWeight.Bold,
                     style = MaterialTheme.typography.bodyMedium
@@ -221,7 +258,7 @@ fun MiniStat(label: String, value: Double?, color: Color) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(text = label, style = MaterialTheme.typography.labelSmall, color = Color.Gray)
         Text(
-            text = if (value == null) "-" else String.format("%.1f", value),
+            text = if (value == null) "-" else String.format(Locale.getDefault(), "%.1f", value),
             style = MaterialTheme.typography.bodyMedium,
             color = if (value != null) color else Color.Gray,
             fontWeight = FontWeight.Bold
@@ -262,120 +299,57 @@ fun aggregateBySession(entries: List<LogEntry>): List<SessionPoint> {
     if (entries.isEmpty()) return emptyList()
     val inputFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
     val outputFormat = SimpleDateFormat("dd/MM", Locale.getDefault())
-    val byDate = entries.groupBy { it.date }.toSortedMap()
+    
+    val grouped = entries.groupBy { it.date }
+    val keysList = grouped.keys.toList()
+    val sortedDates = keysList.sorted()
+    
     val result = mutableListOf<SessionPoint>()
 
-    byDate.forEach { (date, list) ->
+    for (date in sortedDates) {
+        val list = grouped[date] ?: continue
+        
         fun getSessionAvg(session: String): Double? {
-            val vals = list.filter { it.session == session }.flatMap { listOfNotNull(it.bgBefore, it.bgAfter) }
-            return if (vals.isNotEmpty()) vals.average() else null
+            val sVals = mutableListOf<Double>()
+            for (entry in list) {
+                if (entry.session == session) {
+                    val b = entry.bgBefore
+                    if (b != null) sVals.add(b)
+                    val a = entry.bgAfter
+                    if (a != null) sVals.add(a)
+                }
+            }
+            if (sVals.isEmpty()) return null
+            var sum = 0.0
+            for (v in sVals) sum += v
+            return sum / sVals.size
         }
         val parsedDate = try { inputFormat.parse(date) } catch (e: Exception) { null }
         
+        val dailyVals = mutableListOf<Double>()
+        for (entry in list) {
+            val b = entry.bgBefore
+            if (b != null) dailyVals.add(b)
+            val a = entry.bgAfter
+            if (a != null) dailyVals.add(a)
+        }
+        
+        var dAvgVal: Double? = null
+        if (dailyVals.isNotEmpty()) {
+            var sum = 0.0
+            for (v in dailyVals) sum += v
+            dAvgVal = sum / dailyVals.size
+        }
+
         result.add(SessionPoint(
             fullDate = date,
-            dateLabel = parsedDate?.let { outputFormat.format(it) } ?: date,
+            dateLabel = if (parsedDate != null) outputFormat.format(parsedDate) else date,
             avgMorning = getSessionAvg("Sáng"),
             avgNoon = getSessionAvg("Trưa"),
             avgEvening = getSessionAvg("Chiều"),
             avgNight = getSessionAvg("Tối"),
-            avgDaily = list.flatMap { listOfNotNull(it.bgBefore, it.bgAfter) }.let { if (it.isEmpty()) null else it.average() }
+            avgDaily = dAvgVal
         ))
     }
     return result
-}
-
-@Composable
-fun PremiumFlexibleLineChart(
-    points: List<SessionPoint>,
-    showMorning: Boolean,
-    showNoon: Boolean,
-    showEvening: Boolean,
-    showNight: Boolean,
-    showDailyAvg: Boolean,
-    modifier: Modifier = Modifier,
-    minY: Double,
-    maxY: Double
-) {
-    val density = LocalDensity.current
-    val leftPaddingPx = with(density) { 40.dp.toPx() }
-    val bottomPaddingPx = with(density) { 40.dp.toPx() }
-    val topPaddingPx = with(density) { 20.dp.toPx() }
-    val rightPaddingPx = with(density) { 20.dp.toPx() }
-
-    Canvas(modifier = modifier) {
-        val width = size.width
-        val height = size.height
-        val xStart = leftPaddingPx
-        val xEnd = width - rightPaddingPx
-        val yTop = topPaddingPx
-        val yBottom = height - bottomPaddingPx
-        val chartWidth = xEnd - xStart
-        val chartHeight = yBottom - yTop
-
-        // Draw Y Axis grid lines
-        val yLabels = listOf(3.0, 6.0, 9.0, 12.0, 15.0)
-        yLabels.forEach { label ->
-            val ratio = ((label - minY) / (maxY - minY)).coerceIn(0.0, 1.0)
-            val y = yBottom - (ratio * chartHeight).toFloat()
-            drawLine(
-                color = Color.LightGray.copy(alpha = 0.3f),
-                start = Offset(xStart, y),
-                end = Offset(xEnd, y),
-                strokeWidth = 1f
-            )
-        }
-
-        if (points.size <= 1) return@Canvas
-        val stepX = chartWidth / (points.size - 1)
-
-        fun valueToY(value: Double?): Float? {
-            if (value == null) return null
-            val clamped = value.coerceIn(minY, maxY)
-            return (yBottom - ((clamped - minY) / (maxY - minY) * chartHeight).toFloat())
-        }
-
-        if (showMorning) drawSmoothLine(points.map { it.avgMorning }, Color(0xFF2196F3), xStart, stepX, ::valueToY)
-        if (showNoon) drawSmoothLine(points.map { it.avgNoon }, Color(0xFFFF9800), xStart, stepX, ::valueToY)
-        if (showEvening) drawSmoothLine(points.map { it.avgEvening }, Color(0xFFF44336), xStart, stepX, ::valueToY)
-        if (showNight) drawSmoothLine(points.map { it.avgNight }, Color(0xFF9C27B0), xStart, stepX, ::valueToY)
-        if (showDailyAvg) drawSmoothLine(points.map { it.avgDaily }, Color(0xFF4CAF50), xStart, stepX, ::valueToY, isDashed = true)
-    }
-}
-
-fun DrawScope.drawSmoothLine(
-    values: List<Double?>,
-    color: Color,
-    xStart: Float,
-    stepX: Float,
-    valueToY: (Double?) -> Float?,
-    isDashed: Boolean = false
-) {
-    val path = Path()
-    var firstPoint = true
-
-    values.forEachIndexed { index, value ->
-        val x = xStart + stepX * index
-        val y = valueToY(value)
-        if (y != null) {
-            if (firstPoint) {
-                path.moveTo(x, y)
-                firstPoint = false
-            } else {
-                path.lineTo(x, y)
-            }
-            drawCircle(color = color, radius = 4.dp.toPx(), center = Offset(x, y))
-        } else {
-            firstPoint = true
-        }
-    }
-
-    drawPath(
-        path = path,
-        color = color,
-        style = Stroke(
-            width = 3.dp.toPx(),
-            pathEffect = if (isDashed) PathEffect.dashPathEffect(floatArrayOf(20f, 10f), 0f) else null
-        )
-    )
 }
