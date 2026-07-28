@@ -21,8 +21,10 @@ enum class TimeFilter(val days: Int, val label: String) {
 }
 
 data class DashboardAiState(
-    val prediction: Float = 0f,
-    val risk: String = "Calculating..."
+    val morningPrediction: Float = 0f,
+    val morningRisk: String = "Calculating...",
+    val afternoonPrediction: Float = 0f,
+    val afternoonRisk: String = "Calculating..."
 )
 
 @HiltViewModel
@@ -34,15 +36,17 @@ class StatsViewModel @Inject constructor(
     private val _aiState = MutableStateFlow(DashboardAiState())
     val aiState: StateFlow<DashboardAiState> = _aiState.asStateFlow()
 
-    fun predict(data: FloatArray) {
+    fun updatePredictions(morningData: FloatArray, afternoonData: FloatArray) {
         viewModelScope.launch {
-            val result = aiRepo.runPrediction(data)
+            val morningResult = aiRepo.runPrediction(morningData)
+            val afternoonResult = aiRepo.runPrediction(afternoonData)
+            
             _aiState.value = _aiState.value.copy(
-                prediction = result.value,
-                risk = result.risk
+                morningPrediction = morningResult.value,
+                morningRisk = morningResult.risk,
+                afternoonPrediction = afternoonResult.value,
+                afternoonRisk = afternoonResult.risk
             )
-            // Optionally save
-            // aiRepo.savePrediction(result.value)
         }
     }
 
@@ -117,10 +121,15 @@ class StatsViewModel @Inject constructor(
 
     val chartData: StateFlow<List<MultiSeriesPoint>> = filteredEntries.map { entries ->
         val groupedByDate = entries.groupBy { it.date }.toSortedMap()
-        groupedByDate.map { (date, list) ->
+        groupedByDate.mapNotNull { (date, list) ->
+            val allValues = list.flatMap { listOfNotNull(it.bgBefore, it.bgAfter) }
+            // Rule: Don't calculate daily average if only one measurement exists
+            if (allValues.size <= 1) return@mapNotNull null
+
             val avgBefore = list.mapNotNull { it.bgBefore }.let { if (it.isEmpty()) null else it.average() }
             val avgAfter = list.mapNotNull { it.bgAfter }.let { if (it.isEmpty()) null else it.average() }
-            val avgDaily = list.flatMap { listOfNotNull(it.bgBefore, it.bgAfter) }.let { if (it.isEmpty()) null else it.average() }
+            val avgDaily = allValues.average()
+
             MultiSeriesPoint(
                 date = date,
                 avgBefore = avgBefore,

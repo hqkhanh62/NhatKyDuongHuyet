@@ -56,14 +56,11 @@ fun DashboardScreen(
     // Auto AI Update loop
     LaunchedEffect(Unit) {
         while (true) {
-            val fakeInput = floatArrayOf(
-                (70..180).random().toFloat(),
-                (70..180).random().toFloat(),
-                (70..180).random().toFloat(),
-                (70..180).random().toFloat(),
-                (70..180).random().toFloat()
-            )
-            viewModel.predict(fakeInput)
+            // Simulated sensor data
+            val morningInput = floatArrayOf(90f, 95f, 100f, 110f, 105f)
+            val afternoonInput = floatArrayOf(140f, 150f, 160f, 155f, 145f)
+            
+            viewModel.updatePredictions(morningInput, afternoonInput)
             delay(5000)
         }
     }
@@ -115,8 +112,16 @@ fun DashboardScreen(
                 contentPadding = PaddingValues(bottom = 24.dp)
             ) {
                 item {
-                    AnimatedVisibility(visible = true) {
-                        GlucoseAiCard(aiState)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        AnimatedVisibility(visible = true, modifier = Modifier.weight(1f)) {
+                            GlucoseAiCard("SÁNG (Trước ăn)", aiState.morningPrediction, aiState.morningRisk)
+                        }
+                        AnimatedVisibility(visible = true, modifier = Modifier.weight(1f)) {
+                            GlucoseAiCard("CHIỀU (Sau ăn)", aiState.afternoonPrediction, aiState.afternoonRisk)
+                        }
                     }
                 }
 
@@ -278,9 +283,9 @@ fun DashboardScreen(
 }
 
 @Composable
-fun GlucoseAiCard(state: DashboardAiState) {
+fun GlucoseAiCard(label: String, prediction: Float, risk: String) {
     val animatedValue by animateFloatAsState(
-        targetValue = state.prediction,
+        targetValue = prediction,
         animationSpec = tween(1000),
         label = "GlucoseAnimation"
     )
@@ -291,42 +296,45 @@ fun GlucoseAiCard(state: DashboardAiState) {
         elevation = CardDefaults.cardElevation(8.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
-        Column(modifier = Modifier.padding(24.dp)) {
+        Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Favorite, contentDescription = null, tint = Color(0xFF0D47A1))
-                Spacer(modifier = Modifier.width(8.dp))
+                Icon(Icons.Default.Favorite, contentDescription = null, tint = Color(0xFF0D47A1), modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(4.dp))
                 Text(
-                    "AI PREDICTION",
-                    style = MaterialTheme.typography.labelLarge,
+                    label,
+                    style = MaterialTheme.typography.labelSmall,
                     color = Color.Gray,
-                    letterSpacing = 1.sp
+                    letterSpacing = 0.5.sp
                 )
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
+            val mmolValue = prediction / 18.0f
             Text(
-                "${(animatedValue / 18.0f).toInt()}.${((animatedValue / 18.0f) * 10 % 10).toInt()} mmol/L",
-                style = MaterialTheme.typography.displayMedium.copy(fontWeight = FontWeight.Black),
+                "${"%.1f".format(mmolValue)}",
+                style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Black),
                 color = Color(0xFF0D47A1)
             )
+            Text("mmol/L", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
 
             val riskColor = when {
-                state.risk.contains("Low") -> Color(0xFF2196F3)
-                state.risk.contains("High") -> Color(0xFFF44336)
+                risk.contains("Low") -> Color(0xFF2196F3)
+                risk.contains("High") -> Color(0xFFF44336)
                 else -> Color(0xFF4CAF50)
             }
 
             Surface(
                 color = riskColor.copy(alpha = 0.1f),
-                shape = RoundedCornerShape(8.dp)
+                shape = RoundedCornerShape(6.dp),
+                modifier = Modifier.padding(top = 8.dp)
             ) {
                 Text(
-                    text = state.risk,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                    text = risk,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                     color = riskColor,
                     fontWeight = FontWeight.Bold,
-                    style = MaterialTheme.typography.bodyMedium
+                    style = MaterialTheme.typography.labelSmall
                 )
             }
         }

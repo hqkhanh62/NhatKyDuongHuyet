@@ -335,7 +335,8 @@ fun aggregateBySession(entries: List<LogEntry>): List<SessionPoint> {
         }
         
         var dAvgVal: Double? = null
-        if (dailyVals.isNotEmpty()) {
+        // Rule: skip average calculation if only one measurement exists
+        if (dailyVals.size > 1) {
             var sum = 0.0
             for (v in dailyVals) sum += v
             dAvgVal = sum / dailyVals.size

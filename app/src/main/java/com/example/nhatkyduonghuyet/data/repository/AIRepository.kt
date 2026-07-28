@@ -43,32 +43,37 @@ class AIRepository @Inject constructor(
     suspend fun runPrediction(raw: FloatArray): PredictionResult = withContext(Dispatchers.Default) {
         val normalized = Normalizer.normalize(raw)
         
-        // Prepare input/output for TFLite
-        // Assuming model takes [1, sequence_length, features] or [1, features]
-        // Let's assume input shape is [1, 5] based on the Dashboard mock (5 fake points)
-        val input = arrayOf(normalized) 
+        // Input: [1, 5, 1] for LSTM
+        val input = Array(1) { Array(5) { FloatArray(1) } }
+        for (i in 0 until 5) {
+            input[0][i][0] = if (i < normalized.size) normalized[i] else 0f
+        }
+        
         val output = Array(1) { FloatArray(1) }
 
         interpreter?.run(input, output)
 
-        val prediction = output[0][0] * 100 // Scale back to mg/dL range (example)
-        val risk = RiskDetector.detectRisk(prediction)
+        // Model predicts normalized value 0-1, scale to max mmol/L (~20)
+        val predictionMmol = output[0][0] * 20f 
+        val risk = RiskDetector.detectRisk(predictionMmol)
 
-        PredictionResult(prediction, risk)
+        PredictionResult(predictionMmol * 18f, risk) // Return internal mg/dL for Dashboard to keep compatibility
     }
     
-    suspend fun savePrediction(value: Float) = withContext(Dispatchers.IO) {
+    suspend fun savePrediction(valueMgDl: Float) = withContext(Dispatchers.IO) {
         val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
         val timeSdf = SimpleDateFormat("HH:mm", Locale.getDefault())
         val now = Date()
+        
+        val predictionMmol = valueMgDl / 18.0
         
         val entry = LogEntry(
             date = sdf.format(now),
             session = "AI Prediction",
             medType = "AI Automated",
             time = timeSdf.format(now),
-            bgBefore = value.toDouble() / 18.0, // Convert mg/dL to mmol/L
-            note = "AI Predicted value: ${String.format("%.1f", value / 18.0)} mmol/L"
+            bgBefore = predictionMmol,
+            note = "AI Predicted value: ${String.format(Locale.getDefault(), "%.1f", predictionMmol)} mmol/L"
         )
         dao.upsert(entry)
     }
