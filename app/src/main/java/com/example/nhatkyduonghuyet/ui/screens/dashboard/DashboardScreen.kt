@@ -1,6 +1,5 @@
 package com.example.nhatkyduonghuyet.ui.screens.dashboard
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -22,11 +21,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.example.nhatkyduonghuyet.ui.components.LineChartV2
 import com.example.nhatkyduonghuyet.ui.components.DonutChart
 import com.example.nhatkyduonghuyet.ui.components.DonutChartData
-import com.example.nhatkyduonghuyet.viewmodel.DashboardAiState
 import com.example.nhatkyduonghuyet.viewmodel.MultiSeriesPoint
 import com.example.nhatkyduonghuyet.viewmodel.StatsViewModel
 import com.example.nhatkyduonghuyet.viewmodel.TimeFilter
@@ -35,7 +34,11 @@ import com.github.mikephil.charting.components.XAxis
 import com.github.mikephil.charting.data.Entry
 import com.github.mikephil.charting.data.LineData
 import com.github.mikephil.charting.data.LineDataSet
+import com.github.mikephil.charting.formatter.ValueFormatter
+import com.github.mikephil.charting.highlight.Highlight
+import com.github.mikephil.charting.listener.OnChartValueSelectedListener
 import kotlinx.coroutines.delay
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -53,13 +56,13 @@ fun DashboardScreen(
     val showAfter by viewModel.showAfter.collectAsState()
     val showDaily by viewModel.showDaily.collectAsState()
 
+    var selectedX by remember { mutableStateOf<Float?>(null) }
+
     // Auto AI Update loop
     LaunchedEffect(Unit) {
         while (true) {
-            // Simulated sensor data in mmol/L
             val morningInput = floatArrayOf(5.0f, 5.3f, 5.8f, 6.1f, 5.7f)
             val afternoonInput = floatArrayOf(7.8f, 8.2f, 9.1f, 8.5f, 8.0f)
-            
             viewModel.updatePredictions(morningInput, afternoonInput)
             delay(5000)
         }
@@ -112,21 +115,30 @@ fun DashboardScreen(
                 contentPadding = PaddingValues(bottom = 24.dp)
             ) {
                 item {
+                    // Force equal height using IntrinsicSize.Min
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(IntrinsicSize.Min),
                         horizontalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                        AnimatedVisibility(visible = true, modifier = Modifier.weight(1f)) {
-                            GlucoseAiCard("SÁNG (Trước ăn)", aiState.morningPrediction, aiState.morningRisk)
-                        }
-                        AnimatedVisibility(visible = true, modifier = Modifier.weight(1f)) {
-                            GlucoseAiCard("CHIỀU (Sau ăn)", aiState.afternoonPrediction, aiState.afternoonRisk)
-                        }
+                        GlucoseAiCard(
+                            label = "SÁNG (Trước ăn)",
+                            prediction = aiState.morningPrediction,
+                            risk = aiState.morningRisk,
+                            modifier = Modifier.weight(1f).fillMaxHeight()
+                        )
+                        GlucoseAiCard(
+                            label = "Chiều (Trước ngủ)",
+                            prediction = aiState.afternoonPrediction,
+                            risk = aiState.afternoonRisk,
+                            modifier = Modifier.weight(1f).fillMaxHeight()
+                        )
                     }
                 }
 
                 item {
-                    PremiumChartSection(chartData)
+                    PremiumChartSection(chartData, selectedX) { selectedX = it }
                 }
 
                 item {
@@ -232,7 +244,6 @@ fun DashboardScreen(
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                             
-                            // Checkbox filters
                             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 ChartToggleRow("TB Trước ăn", showBefore, Color(0xFF2196F3)) { viewModel.toggleBefore() }
                                 ChartToggleRow("TB Sau ăn", showAfter, Color(0xFFF44336)) { viewModel.toggleAfter() }
@@ -283,7 +294,7 @@ fun DashboardScreen(
 }
 
 @Composable
-fun GlucoseAiCard(label: String, prediction: Float, risk: String) {
+fun GlucoseAiCard(label: String, prediction: Float, risk: String, modifier: Modifier = Modifier) {
     val animatedValue by animateFloatAsState(
         targetValue = prediction,
         animationSpec = tween(1000),
@@ -294,7 +305,7 @@ fun GlucoseAiCard(label: String, prediction: Float, risk: String) {
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
         elevation = CardDefaults.cardElevation(8.dp),
-        modifier = Modifier.fillMaxWidth()
+        modifier = modifier
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -310,9 +321,8 @@ fun GlucoseAiCard(label: String, prediction: Float, risk: String) {
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            val mmolValue = prediction
             Text(
-                "${"%.1f".format(mmolValue)}",
+                "${"%.1f".format(prediction)}",
                 style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Black),
                 color = Color(0xFF0D47A1)
             )
@@ -326,7 +336,7 @@ fun GlucoseAiCard(label: String, prediction: Float, risk: String) {
 
             Surface(
                 color = riskColor.copy(alpha = 0.1f),
-                shape = RoundedCornerShape(6.dp),
+                shape = RoundedCornerShape(8.dp),
                 modifier = Modifier.padding(top = 8.dp)
             ) {
                 Text(
@@ -334,7 +344,7 @@ fun GlucoseAiCard(label: String, prediction: Float, risk: String) {
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                     color = riskColor,
                     fontWeight = FontWeight.Bold,
-                    style = MaterialTheme.typography.labelSmall
+                    style = MaterialTheme.typography.bodySmall
                 )
             }
         }
@@ -342,7 +352,7 @@ fun GlucoseAiCard(label: String, prediction: Float, risk: String) {
 }
 
 @Composable
-fun PremiumChartSection(chartData: List<MultiSeriesPoint>) {
+fun PremiumChartSection(chartData: List<MultiSeriesPoint>, selectedX: Float?, onValueSelected: (Float?) -> Unit) {
     Card(
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
@@ -367,18 +377,43 @@ fun PremiumChartSection(chartData: List<MultiSeriesPoint>) {
                             isDragEnabled = true
                             setScaleEnabled(true)
                             setPinchZoom(true)
-                            xAxis.position = XAxis.XAxisPosition.BOTTOM
-                            xAxis.setDrawGridLines(false)
+                            
+                            xAxis.apply {
+                                position = XAxis.XAxisPosition.BOTTOM
+                                setDrawGridLines(false)
+                                granularity = 1f
+                                setDrawLabels(true) 
+                            }
                             axisRight.isEnabled = false
                             axisLeft.setDrawGridLines(true)
                             legend.isEnabled = true
+
+                            setOnChartValueSelectedListener(object : OnChartValueSelectedListener {
+                                override fun onValueSelected(e: Entry?, h: Highlight?) {
+                                    onValueSelected(e?.x)
+                                }
+                                override fun onNothingSelected() {
+                                    onValueSelected(null)
+                                }
+                            })
                         }
                     },
                     update = { chart ->
-                        val entries = chartData.takeLast(10).mapIndexed { i, point ->
-                            Entry(i.toFloat(), (point.avgDaily ?: 0.0).toFloat()) // Already in mmol/L
+                        val dataSlice = chartData.takeLast(10)
+                        val entries = dataSlice.mapIndexed { i, point ->
+                            Entry(i.toFloat(), (point.avgDaily ?: 0.0).toFloat()) 
                         }
                         
+                        // Fix for X-Axis Logic: ONLY show label for selected index
+                        chart.xAxis.valueFormatter = object : ValueFormatter() {
+                            override fun getFormattedValue(value: Float): String {
+                                val idx = value.toInt()
+                                return if (selectedX != null && idx == selectedX.toInt() && idx >= 0 && idx < dataSlice.size) {
+                                    dataSlice[idx].date.substringAfterLast("-")
+                                } else ""
+                            }
+                        }
+
                         if (entries.isNotEmpty()) {
                             val dataSet = LineDataSet(entries, "Glucose (mmol/L)").apply {
                                 val primaryColor = Color(0xFF0D47A1).toArgb()
@@ -496,6 +531,32 @@ fun StatCard(
                         modifier = Modifier.padding(bottom = 2.dp),
                         color = Color.Gray
                     )
+                }
+            }
+        }
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun DashboardPreview() {
+    MaterialTheme {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color(0xFF0D47A1), Color(0xFF1E88E5), Color(0xFFF5F5F5))
+                    )
+                )
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    GlucoseAiCard("SÁNG (Trước ăn)", 5.6f, "✅ Normal", Modifier.weight(1f).fillMaxHeight())
+                    GlucoseAiCard("Chiều (Trước ngủ)", 8.2f, "⚠ High Sugar", Modifier.weight(1f).fillMaxHeight())
                 }
             }
         }
