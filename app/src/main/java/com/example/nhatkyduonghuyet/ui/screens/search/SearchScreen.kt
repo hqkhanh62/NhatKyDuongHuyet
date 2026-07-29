@@ -55,16 +55,33 @@ fun SearchScreen(
         
         when (valueFilterType) {
             "Max" -> {
-                val maxVal = sessionPoints.mapNotNull { it.avgDaily }.maxOrNull()
-                sessionPoints.filter { it.avgDaily == maxVal }
+                // Find the absolute maximum individual reading in the current category/result set
+                val rawValues = result.flatMap { listOfNotNull(it.bgBefore, it.bgAfter) }
+                val absoluteMax = rawValues.maxOrNull()
+                if (absoluteMax != null) {
+                    // Find all dates that have this absolute maximum reading
+                    val datesWithMax = result.filter { it.bgBefore == absoluteMax || it.bgAfter == absoluteMax }
+                        .map { it.date }
+                        .distinct()
+                    sessionPoints.filter { it.fullDate in datesWithMax }
+                } else emptyList()
             }
             "Min" -> {
-                val minVal = sessionPoints.mapNotNull { it.avgDaily }.minOrNull()
-                sessionPoints.filter { it.avgDaily == minVal }
+                // Find the absolute minimum individual reading
+                val rawValues = result.flatMap { listOfNotNull(it.bgBefore, it.bgAfter) }
+                val absoluteMin = rawValues.minOrNull()
+                if (absoluteMin != null) {
+                    val datesWithMin = result.filter { it.bgBefore == absoluteMin || it.bgAfter == absoluteMin }
+                        .map { it.date }
+                        .distinct()
+                    sessionPoints.filter { it.fullDate in datesWithMin }
+                } else emptyList()
             }
             "TB" -> {
-                val avgVal = sessionPoints.mapNotNull { it.avgDaily }.average()
-                sessionPoints.filter { it.avgDaily != null && kotlin.math.abs(it.avgDaily!! - avgVal) < 0.5 }
+                val rawValues = result.flatMap { listOfNotNull(it.bgBefore, it.bgAfter) }
+                val globalAvg = if (rawValues.isEmpty()) 0.0 else rawValues.average()
+                // Show days where daily average is close to the global average
+                sessionPoints.filter { it.avgDaily != null && kotlin.math.abs(it.avgDaily!! - globalAvg) < 0.5 }
             }
             "Từ - Đến" -> {
                 val from = fromValue.toDoubleOrNull() ?: 0.0
