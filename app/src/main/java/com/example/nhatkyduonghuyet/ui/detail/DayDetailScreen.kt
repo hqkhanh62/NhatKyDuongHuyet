@@ -15,8 +15,10 @@ import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.navigation.NavController
 import com.example.nhatkyduonghuyet.data.local.entity.LogEntry
 import com.example.nhatkyduonghuyet.viewmodel.LogEntryViewModel
@@ -139,7 +141,17 @@ fun SessionEntryCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(8.dp)
+            .padding(8.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = when (sessionName) {
+                "Sáng" -> Color(0xFFE3F2FD) // Light Blue
+                "Trưa" -> Color(0xFFFFF3E0) // Light Orange
+                "Chiều" -> Color(0xFFF3E5F5) // Light Purple
+                "Tối" -> Color(0xFFE8F5E9) // Light Green
+                else -> MaterialTheme.colorScheme.surfaceVariant
+            }
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Text(
@@ -255,6 +267,19 @@ fun SessionEntryCard(
             ) {
                 Text("Lưu")
             }
+        }
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun DayDetailColorsPreview() {
+    val mockEntry = remember { mutableStateOf(LogEntry(date = "2026-07-28", session = "Sáng")) }
+    MaterialTheme {
+        Column(modifier = Modifier.padding(16.dp)) {
+            SessionEntryCard(sessionName = "Sáng", logEntryState = mockEntry, onSave = {})
+            Spacer(modifier = Modifier.height(8.dp))
+            SessionEntryCard(sessionName = "Trưa", logEntryState = remember { mutableStateOf(LogEntry(date = "2026-07-28", session = "Trưa")) }, onSave = {})
         }
     }
 }

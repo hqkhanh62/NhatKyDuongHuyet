@@ -408,11 +408,14 @@ fun PremiumChartSection(chartData: List<MultiSeriesPoint>, selectedX: Float?, on
                         chart.xAxis.valueFormatter = object : ValueFormatter() {
                             override fun getFormattedValue(value: Float): String {
                                 val idx = value.toInt()
-                                return if (selectedX != null && idx == selectedX.toInt() && idx >= 0 && idx < dataSlice.size) {
+                                return if (selectedX != null && Math.abs(value - selectedX) < 0.1f && idx >= 0 && idx < dataSlice.size) {
                                     dataSlice[idx].date.substringAfterLast("-")
                                 } else ""
                             }
                         }
+                        chart.xAxis.setDrawLabels(selectedX != null)
+                        chart.notifyDataSetChanged()
+                        chart.invalidate()
 
                         if (entries.isNotEmpty()) {
                             val dataSet = LineDataSet(entries, "Glucose (mmol/L)").apply {
