@@ -9,6 +9,7 @@ import com.example.nhatkyduonghuyet.ui.chart.ChartScreen
 import com.example.nhatkyduonghuyet.ui.detail.DayDetailScreen
 import com.example.nhatkyduonghuyet.ui.home.DateListScreen
 import com.example.nhatkyduonghuyet.ui.screens.dashboard.DashboardScreen
+import com.example.nhatkyduonghuyet.ui.screens.search.SearchScreen
 import com.example.nhatkyduonghuyet.viewmodel.LogEntryViewModel
 
 @Composable
@@ -52,6 +53,13 @@ fun AppNavHost(
                 viewModel = viewModel
             )
         }
+
+        composable(Screen.Search.route) {
+            SearchScreen(
+                navController = navController,
+                viewModel = viewModel
+            )
+        }
     }
 }
 
@@ -60,4 +68,5 @@ sealed class Screen(val route: String) {
     object DateList : Screen("date_list")
     object DayDetail : Screen("day_detail")
     object Chart : Screen("chart")
+    object Search : Screen("search")
 }

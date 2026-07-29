@@ -88,6 +88,13 @@ fun DateListScreen(
                                 }
                             )
                             DropdownMenuItem(
+                                text = { Text("Tìm kiếm") },
+                                onClick = {
+                                    showMenu = false
+                                    navController.navigate(Screen.Search.route)
+                                }
+                            )
+                            DropdownMenuItem(
                                 text = { Text("Xuất CSV") },
                                 onClick = {
                                     showMenu = false
