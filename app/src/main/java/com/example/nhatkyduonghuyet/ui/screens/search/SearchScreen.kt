@@ -14,6 +14,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.navigation.NavController
+import com.example.nhatkyduonghuyet.data.local.entity.LogEntry
 import com.example.nhatkyduonghuyet.ui.chart.DayInfoCard
 import com.example.nhatkyduonghuyet.ui.chart.aggregateBySession
 import com.example.nhatkyduonghuyet.viewmodel.LogEntryViewModel
@@ -33,7 +34,7 @@ fun SearchScreen(
     var toValue by remember { mutableStateOf("") }
 
     val categories = listOf("Tất cả", "Trước ăn", "Sau ăn", "Sáng", "Trưa", "Chiều", "Tối")
-    val valueTypes = listOf("Tất cả", "Max", "Min", "TB", "Từ - Đến", "Giá trị cụ thể")
+    val valueTypes = listOf("Tất cả", "Max", "Min", "TB", "Từ - Đến", "Lớn hơn hoặc bằng", "Nhỏ hơn hoặc bằng", "Giá trị cụ thể")
 
     val filteredResults = remember(allEntries, categoryFilter, valueFilterType, specificValue, fromValue, toValue) {
         var result = allEntries
@@ -70,6 +71,18 @@ fun SearchScreen(
                 val to = toValue.toDoubleOrNull() ?: Double.MAX_VALUE
                 sessionPoints.filter { it.avgDaily != null && it.avgDaily!! >= from && it.avgDaily!! <= to }
             }
+            "Lớn hơn hoặc bằng" -> {
+                val spec = specificValue.toDoubleOrNull()
+                if (spec != null) {
+                    sessionPoints.filter { it.avgDaily != null && it.avgDaily!! >= spec }
+                } else sessionPoints
+            }
+            "Nhỏ hơn hoặc bằng" -> {
+                val spec = specificValue.toDoubleOrNull()
+                if (spec != null) {
+                    sessionPoints.filter { it.avgDaily != null && it.avgDaily!! <= spec }
+                } else sessionPoints
+            }
             "Giá trị cụ thể" -> {
                 val spec = specificValue.toDoubleOrNull()
                 if (spec != null) {
@@ -101,7 +114,7 @@ fun SearchScreen(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            if (valueFilterType == "Giá trị cụ thể") {
+            if (valueFilterType in listOf("Giá trị cụ thể", "Lớn hơn hoặc bằng", "Nhỏ hơn hoặc bằng")) {
                 OutlinedTextField(
                     value = specificValue,
                     onValueChange = { specificValue = it },
@@ -187,12 +200,12 @@ fun FilterDropdown(label: String, selected: String, options: List<String>, onSel
 fun SearchPreview() {
     MaterialTheme {
         Column(modifier = Modifier.padding(16.dp)) {
-            FilterDropdown(label = "Hạng mục", selected = "Trước ăn", options = listOf("Trước ăn", "Sau ăn")) {}
+            FilterDropdown(label = "Hạng mục", selected = "Tất cả", options = listOf("Tất cả")) {}
             Spacer(modifier = Modifier.height(12.dp))
-            FilterDropdown(label = "Lọc giá trị", selected = "Giá trị cụ thể", options = listOf("Giá trị cụ thể")) {}
+            FilterDropdown(label = "Lọc giá trị", selected = "Lớn hơn hoặc bằng", options = listOf("Lớn hơn hoặc bằng")) {}
             Spacer(modifier = Modifier.height(12.dp))
             OutlinedTextField(
-                value = "6.5",
+                value = "10.0",
                 onValueChange = {},
                 label = { Text("Nhập giá trị (mmol/L)") },
                 modifier = Modifier.fillMaxWidth()
