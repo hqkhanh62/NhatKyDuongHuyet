@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.nhatkyduonghuyet.data.local.entity.LogEntry
 import com.example.nhatkyduonghuyet.data.repository.LogRepository
 import com.example.nhatkyduonghuyet.domain.usecase.DetectRiskPattern
+import com.example.nhatkyduonghuyet.ml.GlucosePredictor
 import com.example.nhatkyduonghuyet.ui.chart.aggregateBySession
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
@@ -49,7 +50,8 @@ data class DashboardUiState(
 
 @HiltViewModel
 class DashboardViewModel @Inject constructor(
-    repo: LogRepository,
+    private val repo: LogRepository,
+    private val predictor: GlucosePredictor,
     private val detectRisk: DetectRiskPattern
 ) : ViewModel() {
 
@@ -60,17 +62,52 @@ class DashboardViewModel @Inject constructor(
         _timeFilter.value = filter
     }
 
-    private fun calculateHbA1c(avgGlucoseMmol: Double): Double {
-        return if (avgGlucoseMmol > 0) (avgGlucoseMmol + 2.59) / 1.59 else 0.0
+    // --- AI HbA1c Engine ---
+
+    private fun estimateDailyAvg(fasting: Float): Float {
+        val noon = predictor.predict(fasting, 0)
+        val evening = predictor.predict(fasting, 1)
+        return (fasting + noon + evening) / 3f
+    }
+
+    private fun weightedAverage(glucoseList: List<Float>): Float {
+        if (glucoseList.isEmpty()) return 0f
+        // Weights: more recent days get higher weights (1, 2, 3...)
+        val weights = glucoseList.mapIndexed { i, _ -> (i + 1).toFloat() }
+        val totalWeight = weights.sum()
+
+        val weightedSum = glucoseList.zip(weights).sumOf { (it.first * it.second).toDouble() }
+        return (weightedSum / totalWeight).toFloat()
+    }
+
+    private fun calculateHbA1c(weightedAvgGlucose: Float): Double {
+        return if (weightedAvgGlucose > 0) (weightedAvgGlucose + 2.59) / 1.59 else 0.0
     }
 
     private fun calculateMetrics(entries: List<LogEntry>): Quad<Double, Double, Int, Double> {
-        val values = entries.flatMap { listOfNotNull(it.bgBefore, it.bgAfter) }
-        val max = values.maxOrNull() ?: 0.0
-        val avg = if (values.isNotEmpty()) values.average() else 0.0
-        val highRate = if (values.isNotEmpty()) (values.count { it > 10.0 } * 100 / values.size) else 0
-        val hba1c = calculateHbA1c(avg)
-        return Quad(max, avg, highRate, hba1c)
+        val allRawValues = entries.flatMap { listOfNotNull(it.bgBefore, it.bgAfter) }
+        val max = allRawValues.maxOrNull() ?: 0.0
+        val simpleAvg = if (allRawValues.isNotEmpty()) allRawValues.average() else 0.0
+        val highRate = if (allRawValues.isNotEmpty()) (allRawValues.count { it > 10.0 } * 100 / allRawValues.size) else 0
+
+        // Smart AI HbA1c calculation using weighted daily averages
+        val groupedByDate = entries.groupBy { it.date }.toSortedMap()
+        val dailyAverages = groupedByDate.map { (_, dayEntries) ->
+            // Try to find fasting (Sáng session, before meal)
+            val fastingEntry = dayEntries.find { it.session == "Sáng" && it.bgBefore != null }
+            if (fastingEntry != null) {
+                estimateDailyAvg(fastingEntry.bgBefore!!.toFloat())
+            } else {
+                // Fallback to simple day average if no fasting data
+                val dayValues = dayEntries.flatMap { listOfNotNull(it.bgBefore, it.bgAfter) }
+                if (dayValues.isNotEmpty()) dayValues.average().toFloat() else null
+            }
+        }.filterNotNull()
+
+        val smartWeightedAvg = weightedAverage(dailyAverages)
+        val hba1c = calculateHbA1c(smartWeightedAvg)
+
+        return Quad(max, simpleAvg, highRate, hba1c)
     }
 
     private fun getComparison(current: Double, previous: Double): ComparisonData? {
@@ -111,13 +148,16 @@ class DashboardViewModel @Inject constructor(
         val (pMax, pAvg, pHighRate, pHba1c) = calculateMetrics(previousEntries)
 
         // Overlay Chart Data Generation - Filter days with >= 2 measurements
-        val currentPoints = aggregateBySession(currentEntries)
+        val currentAgg = aggregateBySession(currentEntries)
+        val prevAgg = aggregateBySession(previousEntries)
+
+        val currentPoints = currentAgg
             .filter { it.avgDaily != null }
             .mapIndexed { index, p -> 
                 ChartPointPro(index, p.avgDaily!!, p.dateLabel)
             }
 
-        val prevPoints = aggregateBySession(previousEntries)
+        val prevPoints = prevAgg
             .filter { it.avgDaily != null }
             .mapIndexed { index, p -> 
                 ChartPointPro(index, p.avgDaily!!, p.dateLabel)
