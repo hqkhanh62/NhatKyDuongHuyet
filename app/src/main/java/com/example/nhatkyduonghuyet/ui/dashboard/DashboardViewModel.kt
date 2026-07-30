@@ -110,16 +110,18 @@ class DashboardViewModel @Inject constructor(
         val (max, avg, highRate, hba1c) = calculateMetrics(currentEntries)
         val (pMax, pAvg, pHighRate, pHba1c) = calculateMetrics(previousEntries)
 
-        // Overlay Chart Data Generation
-        val currentAgg = aggregateBySession(currentEntries)
-        val prevAgg = aggregateBySession(previousEntries)
+        // Overlay Chart Data Generation - Filter days with >= 2 measurements
+        val currentPoints = aggregateBySession(currentEntries)
+            .filter { it.avgDaily != null }
+            .mapIndexed { index, p -> 
+                ChartPointPro(index, p.avgDaily!!, p.dateLabel)
+            }
 
-        val currentPoints = currentAgg.mapIndexed { index, p -> 
-            ChartPointPro(index, p.avgDaily ?: 0.0, p.dateLabel)
-        }
-        val prevPoints = prevAgg.mapIndexed { index, p -> 
-            ChartPointPro(index, p.avgDaily ?: 0.0, p.dateLabel)
-        }
+        val prevPoints = aggregateBySession(previousEntries)
+            .filter { it.avgDaily != null }
+            .mapIndexed { index, p -> 
+                ChartPointPro(index, p.avgDaily!!, p.dateLabel)
+            }
 
         DashboardUiState(
             entries = currentEntries,
