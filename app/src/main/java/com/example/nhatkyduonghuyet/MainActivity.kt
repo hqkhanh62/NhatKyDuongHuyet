@@ -6,17 +6,22 @@ import androidx.activity.compose.setContent
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.compose.rememberNavController
 import com.example.nhatkyduonghuyet.ui.navigation.AppNavHost
+import com.example.nhatkyduonghuyet.ml.GlucosePredictor
 import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+    @Inject lateinit var predictor: GlucosePredictor
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             val navController = rememberNavController()
             AppNavHost(
                 navController = navController,
-                viewModel = hiltViewModel()
+                viewModel = hiltViewModel(),
+                predictor = predictor
             )
         }
     }

@@ -95,6 +95,13 @@ fun DateListScreen(
                                 }
                             )
                             DropdownMenuItem(
+                                text = { Text("Dự đoán AI") },
+                                onClick = {
+                                    showMenu = false
+                                    navController.navigate(Screen.Prediction.route)
+                                }
+                            )
+                            DropdownMenuItem(
                                 text = { Text("Xuất CSV") },
                                 onClick = {
                                     showMenu = false

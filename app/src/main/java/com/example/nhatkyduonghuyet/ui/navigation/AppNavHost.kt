@@ -10,13 +10,16 @@ import com.example.nhatkyduonghuyet.ui.detail.DayDetailScreen
 import com.example.nhatkyduonghuyet.ui.home.DateListScreen
 import com.example.nhatkyduonghuyet.ui.screens.dashboard.DashboardScreen
 import com.example.nhatkyduonghuyet.ui.dashboard.DashboardScreenPro
+import com.example.nhatkyduonghuyet.ui.prediction.PredictionScreen
 import com.example.nhatkyduonghuyet.ui.screens.search.SearchScreen
+import com.example.nhatkyduonghuyet.ml.GlucosePredictor
 import com.example.nhatkyduonghuyet.viewmodel.LogEntryViewModel
 
 @Composable
 fun AppNavHost(
     navController: NavHostController,
     viewModel: LogEntryViewModel,
+    predictor: GlucosePredictor,
     modifier: Modifier = Modifier
 ) {
     NavHost(
@@ -28,6 +31,9 @@ fun AppNavHost(
             DashboardScreenPro(
                 onViewDetails = {
                     navController.navigate(Screen.DateList.route)
+                },
+                onNavigateToPrediction = {
+                    navController.navigate(Screen.Prediction.route)
                 }
             )
         }
@@ -61,6 +67,13 @@ fun AppNavHost(
                 viewModel = viewModel
             )
         }
+
+        composable(Screen.Prediction.route) {
+            PredictionScreen(
+                navController = navController,
+                predictor = predictor
+            )
+        }
     }
 }
 
@@ -70,4 +83,5 @@ sealed class Screen(val route: String) {
     object DayDetail : Screen("day_detail")
     object Chart : Screen("chart")
     object Search : Screen("search")
+    object Prediction : Screen("prediction")
 }

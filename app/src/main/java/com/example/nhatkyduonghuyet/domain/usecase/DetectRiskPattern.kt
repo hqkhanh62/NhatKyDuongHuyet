@@ -13,22 +13,20 @@ class DetectRiskPattern @Inject constructor() {
             insights.add("🚨 Nhiều lần vượt mức nguy hiểm (>13)")
         }
 
-        val values = entries.mapNotNull { it.bgAfter }
-        val avg = if (values.isNotEmpty()) values.average() else 0.0
-        
+        val avg = entries.mapNotNull { it.bgAfter }.average()
         if (avg > 9.0) {
             insights.add("📊 Trung bình cao → nguy cơ HbA1c cao")
         }
 
-        // Need at least 2 points to check trend
-        if (entries.size >= 3) {
-            val lastValues = entries.takeLast(3).mapNotNull { it.bgAfter }
-            if (lastValues.size >= 2) {
-                val trendUp = lastValues.zipWithNext().all { it.second > it.first }
-                if (trendUp) {
-                    insights.add("📈 Xu hướng tăng liên tục")
-                }
-            }
+        val trendUp = if (entries.size >= 3) {
+            entries.takeLast(3)
+                .mapNotNull { it.bgAfter }
+                .zipWithNext()
+                .all { it.second > it.first }
+        } else false
+
+        if (trendUp) {
+            insights.add("📈 Xu hướng tăng liên tục")
         }
 
         return insights

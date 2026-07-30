@@ -4,10 +4,12 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.Icons
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -17,6 +19,7 @@ import com.example.nhatkyduonghuyet.ui.dashboard.components.*
 @Composable
 fun DashboardScreenPro(
     onViewDetails: () -> Unit,
+    onNavigateToPrediction: () -> Unit,
     viewModel: DashboardViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -28,6 +31,9 @@ fun DashboardScreenPro(
             LargeTopAppBar(
                 title = { Text("Dashboard Sức Khỏe Pro", fontWeight = FontWeight.Bold) },
                 actions = {
+                    IconButton(onClick = onNavigateToPrediction) {
+                        Icon(imageVector = Icons.Default.Favorite, contentDescription = "Dự đoán", tint = MaterialTheme.colorScheme.primary)
+                    }
                     IconButton(onClick = onViewDetails) {
                         Icon(imageVector = Icons.Default.List, contentDescription = "Danh sách")
                     }
@@ -41,18 +47,9 @@ fun DashboardScreenPro(
             modifier = Modifier
                 .padding(padding)
                 .fillMaxSize()
-                .padding(horizontal = 16.dp),
+                .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-
-            item {
-                AiPredictionRow(
-                    morningVal = state.ai.morningPrediction,
-                    morningRisk = state.ai.morningRisk,
-                    afternoonVal = state.ai.afternoonPrediction,
-                    afternoonRisk = state.ai.afternoonRisk
-                )
-            }
 
             item {
                 AnimatedStatRow(state)
@@ -76,5 +73,13 @@ fun DashboardScreenPro(
                 Spacer(modifier = Modifier.height(24.dp))
             }
         }
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun DashboardProPreview() {
+    MaterialTheme {
+        DashboardScreenPro(onViewDetails = {}, onNavigateToPrediction = {})
     }
 }
