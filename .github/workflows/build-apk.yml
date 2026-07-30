@@ -26,10 +26,11 @@ jobs:
     - name: Build with Gradle
       run: ./gradlew assembleDebug
 
-    - name: Rename APK with Commit ID
+    - name: Rename APK with Commit ID and Date
       run: |
         COMMIT_ID=$(git rev-parse --short HEAD)
-        mv app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/NhatKyDuongHuyet_${COMMIT_ID}.apk
+        DATE=$(date +'%Y%m%d_%H%M')
+        mv app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/NhatKyDuongHuyet_${DATE}_${COMMIT_ID}.apk
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
