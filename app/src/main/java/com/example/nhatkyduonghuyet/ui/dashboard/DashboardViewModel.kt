@@ -18,11 +18,20 @@ enum class DashboardTimeFilter(val days: Int, val label: String) {
     ALL(Int.MAX_VALUE, "Toàn bộ thời gian")
 }
 
+data class ComparisonData(
+    val diff: Double = 0.0,
+    val percentChange: Double = 0.0,
+    val isBetter: Boolean = true // Decreasing glucose is usually better
+)
+
 data class DashboardUiState(
     val entries: List<LogEntry> = emptyList(),
     val max: Double = 0.0,
+    val maxCompare: ComparisonData? = null,
     val avg: Double = 0.0,
+    val avgCompare: ComparisonData? = null,
     val highRate: Int = 0,
+    val highRateCompare: ComparisonData? = null,
     val insights: List<String> = emptyList(),
     val currentFilter: DashboardTimeFilter = DashboardTimeFilter.LAST_15_DAYS
 )
@@ -40,48 +49,62 @@ class DashboardViewModel @Inject constructor(
         _timeFilter.value = filter
     }
 
+    private fun calculateMetrics(entries: List<LogEntry>): Triple<Double, Double, Int> {
+        val values = entries.mapNotNull { it.bgAfter ?: it.bgBefore }
+        val max = values.maxOrNull() ?: 0.0
+        val avg = if (values.isNotEmpty()) values.average() else 0.0
+        val highRate = if (values.isNotEmpty()) (values.count { it > 10.0 } * 100 / values.size) else 0
+        return Triple(max, avg, highRate)
+    }
+
+    private fun getComparison(current: Double, previous: Double): ComparisonData? {
+        if (previous == 0.0) return null
+        val diff = current - previous
+        val percent = (diff / previous) * 100
+        return ComparisonData(
+            diff = diff,
+            percentChange = percent,
+            isBetter = diff <= 0 // Lower is usually better for glucose
+        )
+    }
+
     val uiState: StateFlow<DashboardUiState> = combine(
         repo.getAllEntries(),
         _timeFilter
     ) { allEntries, filter ->
-        val filteredEntries = if (filter == DashboardTimeFilter.ALL) {
-            allEntries
-        } else {
-            val calendar = Calendar.getInstance()
-            calendar.add(Calendar.DAY_OF_YEAR, -filter.days)
-            val limitDate = calendar.time
-            val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+        val today = Calendar.getInstance()
+        
+        val currentLimit = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -filter.days) }.time
+        val previousLimit = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -filter.days * 2) }.time
 
-            allEntries.filter {
-                try {
-                    val entryDate = sdf.parse(it.date)
-                    entryDate != null && (entryDate.after(limitDate) || it.date == sdf.format(Date()))
-                } catch (e: Exception) {
-                    false
-                }
-            }
+        val currentEntries = allEntries.filter {
+            try {
+                val d = sdf.parse(it.date)
+                d != null && (d.after(currentLimit) || it.date == sdf.format(Date()))
+            } catch (e: Exception) { false }
         }
 
-        val values = filteredEntries.mapNotNull { it.bgAfter ?: it.bgBefore }
+        val previousEntries = if (filter == DashboardTimeFilter.ALL) emptyList() else allEntries.filter {
+            try {
+                val d = sdf.parse(it.date)
+                d != null && d.after(previousLimit) && d.before(currentLimit)
+            } catch (e: Exception) { false }
+        }
 
-        val max = values.maxOrNull() ?: 0.0
-        val avg = if (values.isNotEmpty()) values.average() else 0.0
-
-        val highRate = if (values.isNotEmpty())
-            (values.count { it > 10.0 } * 100 / values.size)
-        else 0
+        val (max, avg, highRate) = calculateMetrics(currentEntries)
+        val (pMax, pAvg, pHighRate) = calculateMetrics(previousEntries)
 
         DashboardUiState(
-            entries = filteredEntries,
+            entries = currentEntries,
             max = max,
+            maxCompare = getComparison(max, pMax),
             avg = avg,
+            avgCompare = getComparison(avg, pAvg),
             highRate = highRate,
-            insights = detectRisk(filteredEntries),
+            highRateCompare = getComparison(highRate.toDouble(), pHighRate.toDouble()),
+            insights = detectRisk(currentEntries),
             currentFilter = filter
         )
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5000),
-        initialValue = DashboardUiState()
-    )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), DashboardUiState())
 }
