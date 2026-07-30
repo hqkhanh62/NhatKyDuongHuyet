@@ -9,6 +9,7 @@ import com.example.nhatkyduonghuyet.ui.chart.ChartScreen
 import com.example.nhatkyduonghuyet.ui.detail.DayDetailScreen
 import com.example.nhatkyduonghuyet.ui.home.DateListScreen
 import com.example.nhatkyduonghuyet.ui.screens.dashboard.DashboardScreen
+import com.example.nhatkyduonghuyet.ui.dashboard.DashboardScreenPro
 import com.example.nhatkyduonghuyet.ui.screens.search.SearchScreen
 import com.example.nhatkyduonghuyet.viewmodel.LogEntryViewModel
 
@@ -24,7 +25,7 @@ fun AppNavHost(
         modifier = modifier
     ) {
         composable(Screen.Dashboard.route) {
-            DashboardScreen(
+            DashboardScreenPro(
                 onViewDetails = {
                     navController.navigate(Screen.DateList.route)
                 }
