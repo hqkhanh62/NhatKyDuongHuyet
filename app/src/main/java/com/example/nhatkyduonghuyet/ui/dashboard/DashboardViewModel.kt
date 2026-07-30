@@ -174,7 +174,7 @@ class DashboardViewModel @Inject constructor(
             hba1cCompare = getComparison(hba1c, pHba1c),
             currentPeriodPoints = currentPoints,
             previousPeriodPoints = prevPoints,
-            insights = detectRisk(currentEntries),
+            insights = detectRisk.detect(currentEntries, currentSmartAvgs.values.toList()),
             currentFilter = filter
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), DashboardUiState())
