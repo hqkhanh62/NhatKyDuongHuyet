@@ -19,31 +19,49 @@ import com.example.nhatkyduonghuyet.ui.dashboard.DashboardUiState
 
 @Composable
 fun AnimatedStatRow(state: DashboardUiState) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        AnimatedStatCard(
-            title = "Max", 
-            value = state.max, 
-            color = Color.Red, 
-            compare = state.maxCompare,
-            modifier = Modifier.weight(1f)
-        )
-        AnimatedStatCard(
-            title = "Avg", 
-            value = state.avg, 
-            color = Color.Blue, 
-            compare = state.avgCompare,
-            modifier = Modifier.weight(1f)
-        )
-        AnimatedStatCard(
-            title = "High %", 
-            value = state.highRate.toDouble(), 
-            color = Color.Magenta, 
-            compare = state.highRateCompare,
-            modifier = Modifier.weight(1f)
-        )
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            AnimatedStatCard(
+                title = "Max", 
+                value = state.max, 
+                unit = "mmol/L",
+                color = Color.Red, 
+                compare = state.maxCompare,
+                modifier = Modifier.weight(1f)
+            )
+            AnimatedStatCard(
+                title = "Average", 
+                value = state.avg, 
+                unit = "mmol/L",
+                color = Color.Blue, 
+                compare = state.avgCompare,
+                modifier = Modifier.weight(1f)
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            AnimatedStatCard(
+                title = "High Rate", 
+                value = state.highRate.toDouble(), 
+                unit = "%",
+                color = Color.Magenta, 
+                compare = state.highRateCompare,
+                modifier = Modifier.weight(1f)
+            )
+            AnimatedStatCard(
+                title = "Est. HbA1c", 
+                value = state.hba1c, 
+                unit = "%",
+                color = Color(0xFF9C27B0), 
+                compare = state.hba1cCompare,
+                modifier = Modifier.weight(1f)
+            )
+        }
     }
 }
 
@@ -52,8 +70,9 @@ fun AnimatedStatCard(
     title: String, 
     value: Double, 
     color: Color, 
-    compare: ComparisonData?,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    unit: String = "",
+    compare: ComparisonData? = null
 ) {
     val animatedValue by animateFloatAsState(
         targetValue = value.toFloat(),
@@ -61,18 +80,30 @@ fun AnimatedStatCard(
     )
 
     Card(
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         modifier = modifier
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
-            Text(title, style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+            Text(title, style = MaterialTheme.typography.labelMedium, color = Color.Gray)
             
-            Text(
-                text = String.format("%.1f", animatedValue),
-                color = color,
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold
-            )
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text(
+                    text = String.format("%.1f", animatedValue),
+                    color = color,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                if (unit.isNotEmpty()) {
+                    Text(
+                        text = " $unit",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.Gray,
+                        modifier = Modifier.padding(bottom = 2.dp)
+                    )
+                }
+            }
 
             compare?.let {
                 Row(
@@ -84,17 +115,17 @@ fun AnimatedStatCard(
                         imageVector = if (isUp) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
                         contentDescription = null,
                         tint = if (it.isBetter) Color(0xFF4CAF50) else Color(0xFFF44336),
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size(14.dp)
                     )
                     Text(
-                        text = "${String.format("%.0f", Math.abs(it.percentChange))}%",
+                        text = "${String.format("%.0f", Math.abs(it.percentChange))}% vs kì trước",
                         color = if (it.isBetter) Color(0xFF4CAF50) else Color(0xFFF44336),
                         style = MaterialTheme.typography.labelSmall,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Medium
                     )
                 }
-            } ?: Spacer(modifier = Modifier.height(16.dp))
+            } ?: Box(modifier = Modifier.height(16.dp))
         }
     }
 }

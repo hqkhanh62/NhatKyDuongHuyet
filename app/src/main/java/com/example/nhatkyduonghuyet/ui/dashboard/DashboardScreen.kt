@@ -97,7 +97,7 @@ fun DashboardScreenPro(
             }
 
             item {
-                GlucoseChartPro(state.entries)
+                GlucoseChartPro(state)
             }
 
             item {

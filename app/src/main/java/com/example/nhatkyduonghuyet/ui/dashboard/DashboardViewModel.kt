@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.nhatkyduonghuyet.data.local.entity.LogEntry
 import com.example.nhatkyduonghuyet.data.repository.LogRepository
 import com.example.nhatkyduonghuyet.domain.usecase.DetectRiskPattern
+import com.example.nhatkyduonghuyet.ui.chart.aggregateBySession
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import java.text.SimpleDateFormat
@@ -21,7 +22,13 @@ enum class DashboardTimeFilter(val days: Int, val label: String) {
 data class ComparisonData(
     val diff: Double = 0.0,
     val percentChange: Double = 0.0,
-    val isBetter: Boolean = true // Decreasing glucose is usually better
+    val isBetter: Boolean = true 
+)
+
+data class ChartPointPro(
+    val xIndex: Int,
+    val value: Double,
+    val dateLabel: String
 )
 
 data class DashboardUiState(
@@ -32,6 +39,10 @@ data class DashboardUiState(
     val avgCompare: ComparisonData? = null,
     val highRate: Int = 0,
     val highRateCompare: ComparisonData? = null,
+    val hba1c: Double = 0.0,
+    val hba1cCompare: ComparisonData? = null,
+    val currentPeriodPoints: List<ChartPointPro> = emptyList(),
+    val previousPeriodPoints: List<ChartPointPro> = emptyList(),
     val insights: List<String> = emptyList(),
     val currentFilter: DashboardTimeFilter = DashboardTimeFilter.LAST_15_DAYS
 )
@@ -49,12 +60,17 @@ class DashboardViewModel @Inject constructor(
         _timeFilter.value = filter
     }
 
-    private fun calculateMetrics(entries: List<LogEntry>): Triple<Double, Double, Int> {
-        val values = entries.mapNotNull { it.bgAfter ?: it.bgBefore }
+    private fun calculateHbA1c(avgGlucoseMmol: Double): Double {
+        return if (avgGlucoseMmol > 0) (avgGlucoseMmol + 2.59) / 1.59 else 0.0
+    }
+
+    private fun calculateMetrics(entries: List<LogEntry>): Quad<Double, Double, Int, Double> {
+        val values = entries.flatMap { listOfNotNull(it.bgBefore, it.bgAfter) }
         val max = values.maxOrNull() ?: 0.0
         val avg = if (values.isNotEmpty()) values.average() else 0.0
         val highRate = if (values.isNotEmpty()) (values.count { it > 10.0 } * 100 / values.size) else 0
-        return Triple(max, avg, highRate)
+        val hba1c = calculateHbA1c(avg)
+        return Quad(max, avg, highRate, hba1c)
     }
 
     private fun getComparison(current: Double, previous: Double): ComparisonData? {
@@ -64,7 +80,7 @@ class DashboardViewModel @Inject constructor(
         return ComparisonData(
             diff = diff,
             percentChange = percent,
-            isBetter = diff <= 0 // Lower is usually better for glucose
+            isBetter = diff <= 0 
         )
     }
 
@@ -73,7 +89,6 @@ class DashboardViewModel @Inject constructor(
         _timeFilter
     ) { allEntries, filter ->
         val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-        val today = Calendar.getInstance()
         
         val currentLimit = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -filter.days) }.time
         val previousLimit = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -filter.days * 2) }.time
@@ -88,12 +103,23 @@ class DashboardViewModel @Inject constructor(
         val previousEntries = if (filter == DashboardTimeFilter.ALL) emptyList() else allEntries.filter {
             try {
                 val d = sdf.parse(it.date)
-                d != null && d.after(previousLimit) && d.before(currentLimit)
+                d != null && d.after(previousLimit) && (d.before(currentLimit) || it.date == sdf.format(currentLimit))
             } catch (e: Exception) { false }
         }
 
-        val (max, avg, highRate) = calculateMetrics(currentEntries)
-        val (pMax, pAvg, pHighRate) = calculateMetrics(previousEntries)
+        val (max, avg, highRate, hba1c) = calculateMetrics(currentEntries)
+        val (pMax, pAvg, pHighRate, pHba1c) = calculateMetrics(previousEntries)
+
+        // Overlay Chart Data Generation
+        val currentAgg = aggregateBySession(currentEntries)
+        val prevAgg = aggregateBySession(previousEntries)
+
+        val currentPoints = currentAgg.mapIndexed { index, p -> 
+            ChartPointPro(index, p.avgDaily ?: 0.0, p.dateLabel)
+        }
+        val prevPoints = prevAgg.mapIndexed { index, p -> 
+            ChartPointPro(index, p.avgDaily ?: 0.0, p.dateLabel)
+        }
 
         DashboardUiState(
             entries = currentEntries,
@@ -103,8 +129,19 @@ class DashboardViewModel @Inject constructor(
             avgCompare = getComparison(avg, pAvg),
             highRate = highRate,
             highRateCompare = getComparison(highRate.toDouble(), pHighRate.toDouble()),
+            hba1c = hba1c,
+            hba1cCompare = getComparison(hba1c, pHba1c),
+            currentPeriodPoints = currentPoints,
+            previousPeriodPoints = prevPoints,
             insights = detectRisk(currentEntries),
             currentFilter = filter
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), DashboardUiState())
 }
+
+data class Quad<out A, out B, out C, out D>(
+    val first: A,
+    val second: B,
+    val third: C,
+    val fourth: D
+)
