@@ -76,7 +76,7 @@ fun MainPagerScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
-            beyondViewportPageCount = 1
+            beyondBoundsPageCount = 1
         ) { page ->
             // Custom Animation Logic: Scale and Alpha based on distance from current page
             val pageOffset = (
