@@ -2,9 +2,12 @@ package com.example.nhatkyduonghuyet.ui.dashboard
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.Icons
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -24,6 +27,7 @@ fun DashboardScreenPro(
 ) {
     val state by viewModel.uiState.collectAsState()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    var showFilterMenu by remember { mutableStateOf(false) }
 
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
@@ -31,6 +35,30 @@ fun DashboardScreenPro(
             LargeTopAppBar(
                 title = { Text("Dashboard Sức Khỏe Pro", fontWeight = FontWeight.Bold) },
                 actions = {
+                    Box {
+                        IconButton(onClick = { showFilterMenu = true }) {
+                            Icon(imageVector = Icons.Default.DateRange, contentDescription = "Lọc thời gian")
+                        }
+                        DropdownMenu(
+                            expanded = showFilterMenu,
+                            onDismissRequest = { showFilterMenu = false }
+                        ) {
+                            DashboardTimeFilter.entries.forEach { filter ->
+                                DropdownMenuItem(
+                                    text = { Text(filter.label) },
+                                    onClick = {
+                                        viewModel.setTimeFilter(filter)
+                                        showFilterMenu = false
+                                    },
+                                    trailingIcon = {
+                                        if (state.currentFilter == filter) {
+                                            Icon(imageVector = Icons.Default.Check, contentDescription = null)
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                    }
                     IconButton(onClick = onNavigateToPrediction) {
                         Icon(imageVector = Icons.Default.Favorite, contentDescription = "Dự đoán", tint = MaterialTheme.colorScheme.primary)
                     }
@@ -47,9 +75,22 @@ fun DashboardScreenPro(
             modifier = Modifier
                 .padding(padding)
                 .fillMaxSize()
-                .padding(16.dp),
+                .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            item {
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(
+                        text = "Đang xem: ${state.currentFilter.label}",
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
+            }
 
             item {
                 AnimatedStatRow(state)
