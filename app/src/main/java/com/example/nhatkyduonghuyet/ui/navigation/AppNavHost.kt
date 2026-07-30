@@ -10,6 +10,7 @@ import com.example.nhatkyduonghuyet.ui.detail.DayDetailScreen
 import com.example.nhatkyduonghuyet.ui.home.DateListScreen
 import com.example.nhatkyduonghuyet.ui.screens.dashboard.DashboardScreen
 import com.example.nhatkyduonghuyet.ui.dashboard.DashboardScreenPro
+import com.example.nhatkyduonghuyet.ui.navigation.MainPagerScreen
 import com.example.nhatkyduonghuyet.ui.prediction.PredictionScreen
 import com.example.nhatkyduonghuyet.ui.screens.search.SearchScreen
 import com.example.nhatkyduonghuyet.ml.GlucosePredictor
@@ -24,24 +25,14 @@ fun AppNavHost(
 ) {
     NavHost(
         navController = navController,
-        startDestination = Screen.Dashboard.route,
+        startDestination = "main_pager",
         modifier = modifier
     ) {
-        composable(Screen.Dashboard.route) {
-            DashboardScreenPro(
-                onViewDetails = {
-                    navController.navigate(Screen.DateList.route)
-                },
-                onNavigateToPrediction = {
-                    navController.navigate(Screen.Prediction.route)
-                }
-            )
-        }
-
-        composable(Screen.DateList.route) {
-            DateListScreen(
+        composable("main_pager") {
+            MainPagerScreen(
                 navController = navController,
-                viewModel = viewModel
+                viewModel = viewModel,
+                predictor = predictor
             )
         }
 
