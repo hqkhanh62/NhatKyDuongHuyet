@@ -1,19 +1,21 @@
 package com.example.nhatkyduonghuyet.ui.scanner
 
 import android.Manifest
+import android.content.Context
+import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import android.util.Log
 import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -24,8 +26,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
@@ -46,7 +46,6 @@ fun ScannerScreen(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    val haptic = LocalHapticFeedback.current
     val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
     
     var lastResult by remember { mutableStateOf<ScannedGlucoseResult?>(null) }
@@ -64,9 +63,48 @@ fun ScannerScreen(
         launcher.launch(Manifest.permission.CAMERA)
     }
 
+    fun triggerHealthVibration(isDangerous: Boolean) {
+        val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
+            vibratorManager.defaultVibrator
+        } else {
+            @Suppress("DEPRECATION")
+            context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        }
+
+        if (isDangerous) {
+            // SOS Morse Code: ... --- ...
+            // Pattern: [delay, vibrate, delay, vibrate...]
+            val dot = 150L
+            val dash = 450L
+            val gap = 100L
+            val letterGap = 300L
+            
+            val pattern = longArrayOf(
+                0, dot, gap, dot, gap, dot, // S
+                letterGap, dash, gap, dash, gap, dash, // O
+                letterGap, dot, gap, dot, gap, dot // S
+            )
+            
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                vibrator.vibrate(VibrationEffect.createWaveform(pattern, -1))
+            } else {
+                @Suppress("DEPRECATION")
+                vibrator.vibrate(pattern, -1)
+            }
+        } else {
+            // Standard short vibrate for success
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                vibrator.vibrate(VibrationEffect.createOneShot(200, VibrationEffect.DEFAULT_AMPLITUDE))
+            } else {
+                @Suppress("DEPRECATION")
+                vibrator.vibrate(200)
+            }
+        }
+    }
+
     Scaffold(
         topBar = {
-            // Simplified Top Bar to avoid experimental API issues in build
             Surface(shadowElevation = 4.dp) {
                 Row(
                     modifier = Modifier
@@ -114,7 +152,9 @@ fun ScannerScreen(
                                             scanner.processImage(
                                                 image,
                                                 onSuccess = { result ->
-                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                    // Trigger SOS if > 13.0 mmol/L, else normal
+                                                    triggerHealthVibration(result.value > 13.0f)
+
                                                     lastResult = result
                                                     isProcessing = false
                                                     onGlucoseDetected(result)
