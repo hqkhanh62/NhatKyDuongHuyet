@@ -6,6 +6,7 @@ import com.example.nhatkyduonghuyet.data.local.entity.LogEntry
 import com.example.nhatkyduonghuyet.data.repository.LogRepository
 import com.example.nhatkyduonghuyet.domain.usecase.DetectRiskPattern
 import com.example.nhatkyduonghuyet.ml.GlucosePredictor
+import com.example.nhatkyduonghuyet.ml.ScannedGlucoseResult
 import com.example.nhatkyduonghuyet.ui.chart.aggregateBySession
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
@@ -56,26 +57,38 @@ class DashboardViewModel @Inject constructor(
     private val detectRisk: DetectRiskPattern
 ) : ViewModel() {
 
-    fun onGlucoseScanned(value: Float) {
+    fun onGlucoseScanned(result: ScannedGlucoseResult) {
         viewModelScope.launch {
-            val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+            val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+            val timeSdf = SimpleDateFormat("HH:mm", Locale.getDefault())
+            val now = Date()
+
+            // 1. Use scanned time or fallback to system time
+            val finalTime = result.time ?: timeSdf.format(now)
+            
+            // 2. Use scanned date or fallback to system date
+            val finalDate = result.date ?: sdf.format(now)
+
+            // 3. Detect session based on finalTime
+            val hour = try { 
+                finalTime.substringBefore(':').toInt() 
+            } catch (e: Exception) { 
+                Calendar.getInstance().get(Calendar.HOUR_OF_DAY) 
+            }
+            
             val session = when (hour) {
                 in 5..10 -> "Sáng"
                 in 11..15 -> "Trưa"
                 else -> "Chiều"
             }
-            
-            val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-            val timeSdf = SimpleDateFormat("HH:mm", Locale.getDefault())
-            val now = Date()
 
-            // AI Pipeline: Save -> Trigger refresh
+            // AI Pipeline: Save with OCR-detected context
             val entry = LogEntry(
-                date = sdf.format(now),
+                date = finalDate,
                 session = session,
-                time = timeSdf.format(now),
-                bgBefore = value.toDouble(), 
-                note = "Auto-scanned via AI Camera"
+                time = finalTime,
+                bgBefore = result.value.toDouble(), 
+                note = "Auto-scanned via AI Camera (Date/Time detected: ${result.date != null})"
             )
             repo.upsert(entry)
         }
@@ -87,6 +100,8 @@ class DashboardViewModel @Inject constructor(
     fun setTimeFilter(filter: DashboardTimeFilter) {
         _timeFilter.value = filter
     }
+
+    // --- AI HbA1c & Trend Engine ---
 
     private fun estimateDailyAvg(fasting: Float): Float {
         val noon = predictor.predict(fasting, 0)

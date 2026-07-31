@@ -45,8 +45,8 @@ fun AppNavHost(
             ScannerScreen(
                 navController = navController,
                 scanner = scanner,
-                onGlucoseDetected = { value ->
-                    dashboardViewModel.onGlucoseScanned(value)
+                onGlucoseDetected = { result ->
+                    dashboardViewModel.onGlucoseScanned(result)
                 }
             )
         }
