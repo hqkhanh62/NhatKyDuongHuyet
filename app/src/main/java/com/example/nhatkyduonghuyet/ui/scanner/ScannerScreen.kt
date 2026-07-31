@@ -24,6 +24,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
@@ -44,6 +46,7 @@ fun ScannerScreen(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val haptic = LocalHapticFeedback.current
     val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
     
     var lastResult by remember { mutableStateOf<ScannedGlucoseResult?>(null) }
@@ -111,6 +114,7 @@ fun ScannerScreen(
                                             scanner.processImage(
                                                 image,
                                                 onSuccess = { result ->
+                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                                     lastResult = result
                                                     isProcessing = false
                                                     onGlucoseDetected(result)
