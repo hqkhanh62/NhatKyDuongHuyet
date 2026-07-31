@@ -9,6 +9,7 @@ import com.example.nhatkyduonghuyet.ml.GlucosePredictor
 import com.example.nhatkyduonghuyet.ui.chart.aggregateBySession
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 import javax.inject.Inject
@@ -54,6 +55,31 @@ class DashboardViewModel @Inject constructor(
     private val predictor: GlucosePredictor,
     private val detectRisk: DetectRiskPattern
 ) : ViewModel() {
+
+    fun onGlucoseScanned(value: Float) {
+        viewModelScope.launch {
+            val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+            val session = when (hour) {
+                in 5..10 -> "Sáng"
+                in 11..15 -> "Trưa"
+                else -> "Chiều"
+            }
+            
+            val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+            val timeSdf = SimpleDateFormat("HH:mm", Locale.getDefault())
+            val now = Date()
+
+            // AI Pipeline: Save -> Trigger refresh
+            val entry = LogEntry(
+                date = sdf.format(now),
+                session = session,
+                time = timeSdf.format(now),
+                bgBefore = value.toDouble(), 
+                note = "Auto-scanned via AI Camera"
+            )
+            repo.upsert(entry)
+        }
+    }
 
     private val _timeFilter = MutableStateFlow(DashboardTimeFilter.LAST_15_DAYS)
     val timeFilter = _timeFilter.asStateFlow()

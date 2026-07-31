@@ -1,0 +1,131 @@
+nâng cấp tiếp theo
+Yêu cầu:
+Scan màn hình máy đo
+Tự nhận số
+Tự train model
+Zero manual input 🔥
+
+🧠 1. Kiến trúc tổng thể
+Camera → OCR → Clean → Detect Session → Save → AI Prediction → HbA1c → Alert
+📸 2. OCR Scan (Android – realtime)
+🔥 Dùng ML Kit (BEST)
+Dependency:
+implementation "com.google.mlkit:text-recognition:16.0.0"
+🔹 Camera + OCR
+fun processImage(image: InputImage) {
+
+    val recognizer = TextRecognition.getClient()
+
+    recognizer.process(image)
+        .addOnSuccessListener { visionText ->
+            val rawText = visionText.text
+            val glucose = extractGlucose(rawText)
+
+            if (glucose != null) {
+                onGlucoseDetected(glucose)
+            }
+        }
+}
+🔥 Extract số glucose (core AI OCR logic)
+fun extractGlucose(text: String): Float? {
+
+    val regex = Regex("""\b(\d{1,2}\.\d)\b""")
+
+    val match = regex.find(text)
+    return match?.value?.toFloatOrNull()
+}
+⚙️ 3. Auto Import Pipeline
+🔥 Detect session thông minh
+fun detectSession(hour: Int): Int {
+    return when (hour) {
+        in 5..7 -> 0 // sáng (fasting)
+        in 8..18 -> 1 // trưa
+        else -> 2 // chiều/tối
+    }
+}
+🔥 Save data
+data class GlucoseEntry(
+    val value: Float,
+    val timestamp: Long,
+    val session: Int
+)
+🔥 Auto clean
+fun clean(value: Float): Float? {
+    return if (value in 2.0..30.0) value else null
+}
+🤖 4. Realtime AI Prediction
+🔹 Load TFLite model
+val model = TFLiteModel(context)
+🔥 Predict ngay khi scan
+fun onGlucoseDetected(value: Float) {
+
+    val session = detectSession(currentHour())
+
+    if (session == 0) {
+        val noon = model.predict(value, 0f)
+        val evening = model.predict(value, 1f)
+
+        updateDashboard(value, noon, evening)
+    }
+}
+
+🔥 Weighted HbA1c (AI hơn)
+
+👉 Ưu tiên dữ liệu gần đây (giống lab thực tế)
+
+fun weightedAvg(glucose: List<Float>): Float {
+    val weights = glucose.mapIndexed { i, _ -> i + 1 }
+    val totalWeight = weights.sum()
+
+    return glucose.zip(weights)
+        .sumOf { it.first * it.second } / totalWeight
+}
+
+🔥 Công thức chuẩn:
+fun calculateHbA1c(avg: Float): Float {
+    return (weightedAvg + 2.59f) / 1.59f
+}
+}
+
+📱 6. UI Flow (Realtime)
+Scan → Detect 7.8 → Auto fill → Predict → Show dashboard ngay
+🔥 Compose UI (Live update)
+Text("Glucose: $value mmol/L")
+Text("Predicted noon: $noon")
+Text("Predicted evening: $evening")
+Text("HbA1c: $hba1c %")
+🔔 7. AI Notification (Smart)
+🔥 Logic nâng cao
+fun generateAlert(glucose: Float, hba1c: Float): String {
+
+    return when {
+        glucose > 15 -> "🚨 Đường huyết rất cao!"
+        hba1c > 9 -> "⚠️ HbA1c nguy hiểm"
+        glucose < 3.5 -> "⚠️ Hạ đường huyết"
+        else -> "OK"
+    }
+}
+🔔 Trigger realtime
+if (glucose > 13) {
+    sendNotification("⚠️ Đường huyết cao sau đo")
+}
+🚀 8. Auto AI Loop (quan trọng)
+Scan → Save → Predict → Update → Alert → Learn
+🧠 9. Upgrade cực mạnh (PRO)
+🔥 1. OCR chính xác hơn
+Crop vùng số
+Enhance contrast
+Detect only LCD digits
+🔥 2. Continuous learning
+// Sau mỗi ngày → retrain nhẹ
+🔥 3. Predict tương lai
+Bạn sẽ đạt HbA1c 9.2 trong 14 ngày
+⚠️ 10. Pitfall bạn cần tránh
+OCR nhầm: 7.8 → 78
+Ánh sáng kém
+Font LCD khó đọc
+
+👉 Fix bằng:
+
+Regex + validation
+Confidence threshold

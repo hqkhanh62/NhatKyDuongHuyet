@@ -8,6 +8,7 @@ import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.Icons
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -23,6 +24,7 @@ import com.example.nhatkyduonghuyet.ui.dashboard.components.*
 fun DashboardScreenPro(
     onViewDetails: () -> Unit,
     onNavigateToPrediction: () -> Unit,
+    onNavigateToScanner: () -> Unit,
     viewModel: DashboardViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -58,6 +60,9 @@ fun DashboardScreenPro(
                                 )
                             }
                         }
+                    }
+                    IconButton(onClick = onNavigateToScanner) {
+                        Icon(imageVector = Icons.Default.PhotoCamera, contentDescription = "Quét", tint = MaterialTheme.colorScheme.primary)
                     }
                     IconButton(onClick = onNavigateToPrediction) {
                         Icon(imageVector = Icons.Default.Favorite, contentDescription = "Dự đoán", tint = MaterialTheme.colorScheme.primary)
@@ -121,6 +126,6 @@ fun DashboardScreenPro(
 @Composable
 fun DashboardProPreview() {
     MaterialTheme {
-        DashboardScreenPro(onViewDetails = {}, onNavigateToPrediction = {})
+        DashboardScreenPro(onViewDetails = {}, onNavigateToPrediction = {}, onNavigateToScanner = {})
     }
 }

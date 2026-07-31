@@ -2,6 +2,7 @@ package com.example.nhatkyduonghuyet.ui.navigation
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -13,7 +14,9 @@ import com.example.nhatkyduonghuyet.ui.dashboard.DashboardScreenPro
 import com.example.nhatkyduonghuyet.ui.navigation.MainPagerScreen
 import com.example.nhatkyduonghuyet.ui.prediction.PredictionScreen
 import com.example.nhatkyduonghuyet.ui.screens.search.SearchScreen
+import com.example.nhatkyduonghuyet.ui.scanner.ScannerScreen
 import com.example.nhatkyduonghuyet.ml.GlucosePredictor
+import com.example.nhatkyduonghuyet.ml.GlucoseScanner
 import com.example.nhatkyduonghuyet.viewmodel.LogEntryViewModel
 
 @Composable
@@ -21,6 +24,7 @@ fun AppNavHost(
     navController: NavHostController,
     viewModel: LogEntryViewModel,
     predictor: GlucosePredictor,
+    scanner: GlucoseScanner,
     modifier: Modifier = Modifier
 ) {
     NavHost(
@@ -33,6 +37,17 @@ fun AppNavHost(
                 navController = navController,
                 viewModel = viewModel,
                 predictor = predictor
+            )
+        }
+
+        composable(Screen.Scanner.route) {
+            val dashboardViewModel: com.example.nhatkyduonghuyet.ui.dashboard.DashboardViewModel = hiltViewModel()
+            ScannerScreen(
+                navController = navController,
+                scanner = scanner,
+                onGlucoseDetected = { value ->
+                    dashboardViewModel.onGlucoseScanned(value)
+                }
             )
         }
 
@@ -75,4 +90,5 @@ sealed class Screen(val route: String) {
     object Chart : Screen("chart")
     object Search : Screen("search")
     object Prediction : Screen("prediction")
+    object Scanner : Screen("scanner")
 }
