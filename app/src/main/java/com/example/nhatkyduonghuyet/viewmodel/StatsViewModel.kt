@@ -42,9 +42,9 @@ class StatsViewModel @Inject constructor(
             val afternoonResult = aiRepo.runPrediction(afternoonData)
             
             _aiState.value = _aiState.value.copy(
-                morningPrediction = morningResult.value,
+                morningPrediction = morningResult.next,
                 morningRisk = morningResult.risk,
-                afternoonPrediction = afternoonResult.value,
+                afternoonPrediction = afternoonResult.next,
                 afternoonRisk = afternoonResult.risk
             )
         }

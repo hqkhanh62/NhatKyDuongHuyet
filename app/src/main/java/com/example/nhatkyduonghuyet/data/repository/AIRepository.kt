@@ -56,7 +56,12 @@ class AIRepository @Inject constructor(
         val predictionMmol = Normalizer.denormalize(output[0][0])
         val risk = RiskDetector.detectRisk(predictionMmol)
 
-        PredictionResult(predictionMmol, risk)
+        PredictionResult(
+            current = rawMmol.lastOrNull() ?: 0f,
+            next = predictionMmol,
+            trend = if (rawMmol.isNotEmpty()) predictionMmol - rawMmol.last() else 0f,
+            risk = risk
+        )
     }
     
     suspend fun savePrediction(predictionMmol: Float) = withContext(Dispatchers.IO) {

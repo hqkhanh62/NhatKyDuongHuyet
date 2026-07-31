@@ -17,11 +17,13 @@ class RealtimePredictor @Inject constructor(
         val input = buffer.toInputArray()
         val next = model.predict(input)
         val trend = next - value
+        val risk = RiskDetector.detectRisk(next)
 
         return PredictionResult(
             current = value,
             next = next,
-            trend = trend
+            trend = trend,
+            risk = risk
         )
     }
     
