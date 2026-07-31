@@ -1,24 +1,42 @@
-
 package com.example.nhatkyduonghuyet.ai
 
 import android.content.Context
 import org.tensorflow.lite.Interpreter
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
+import java.io.FileInputStream
+import java.nio.MappedByteBuffer
+import java.nio.channels.FileChannel
+import javax.inject.Inject
+import javax.inject.Singleton
 
-class LSTMEngine(context: Context) {
+@Singleton
+class LSTMEngine @Inject constructor(private val context: Context) {
+
     private val interpreter: Interpreter
+
     init {
-        val bytes = context.assets.open("lstm_model.tflite").readBytes()
-        val buffer = ByteBuffer.allocateDirect(bytes.size).order(ByteOrder.nativeOrder())
-        buffer.put(bytes)
-        interpreter = Interpreter(buffer)
+        val model = loadModel(context, "lstm_model.tflite")
+        interpreter = Interpreter(model)
     }
-    fun predict(seq: FloatArray): Float {
-        val input = Array(1) { Array(5) { FloatArray(1) } }
-        for (i in seq.indices) input[0][i][0] = seq[i]
+
+    fun predict(input: Array<Array<FloatArray>>): Float {
         val output = Array(1) { FloatArray(1) }
         interpreter.run(input, output)
-        return output[0][0]
+        
+        // De-normalize result (0-1 -> mmol/L)
+        // Using the calibrated Scaler Min/Max
+        val min = 4.1f
+        val max = 13.8f
+        return (output[0][0] * (max - min)) + min
+    }
+
+    private fun loadModel(context: Context, name: String): MappedByteBuffer {
+        val fileDescriptor = context.assets.openFd(name)
+        val inputStream = FileInputStream(fileDescriptor.fileDescriptor)
+        val channel = inputStream.channel
+        return channel.map(
+            FileChannel.MapMode.READ_ONLY,
+            fileDescriptor.startOffset,
+            fileDescriptor.declaredLength
+        )
     }
 }

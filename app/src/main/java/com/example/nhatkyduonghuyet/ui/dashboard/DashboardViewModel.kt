@@ -7,6 +7,8 @@ import com.example.nhatkyduonghuyet.data.repository.LogRepository
 import com.example.nhatkyduonghuyet.domain.usecase.DetectRiskPattern
 import com.example.nhatkyduonghuyet.ml.GlucosePredictor
 import com.example.nhatkyduonghuyet.ml.ScannedGlucoseResult
+import com.example.nhatkyduonghuyet.ai.RealtimePredictor
+import com.example.nhatkyduonghuyet.ai.PredictionResult
 import com.example.nhatkyduonghuyet.ui.chart.aggregateBySession
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
@@ -47,15 +49,19 @@ data class DashboardUiState(
     val currentPeriodPoints: List<ChartPointPro> = emptyList(),
     val previousPeriodPoints: List<ChartPointPro> = emptyList(),
     val insights: List<String> = emptyList(),
-    val currentFilter: DashboardTimeFilter = DashboardTimeFilter.LAST_15_DAYS
+    val currentFilter: DashboardTimeFilter = DashboardTimeFilter.LAST_15_DAYS,
+    val realtimePrediction: PredictionResult? = null
 )
 
 @HiltViewModel
 class DashboardViewModel @Inject constructor(
     private val repo: LogRepository,
     private val predictor: GlucosePredictor,
+    private val realtimePredictor: RealtimePredictor,
     private val detectRisk: DetectRiskPattern
 ) : ViewModel() {
+
+    private val _realtimePrediction = MutableStateFlow<PredictionResult?>(null)
 
     fun onGlucoseScanned(result: ScannedGlucoseResult) {
         viewModelScope.launch {
@@ -63,13 +69,9 @@ class DashboardViewModel @Inject constructor(
             val timeSdf = SimpleDateFormat("HH:mm", Locale.getDefault())
             val now = Date()
 
-            // 1. Use scanned time or fallback to system time
             val finalTime = result.time ?: timeSdf.format(now)
-            
-            // 2. Use scanned date or fallback to system date
             val finalDate = result.date ?: sdf.format(now)
 
-            // 3. Detect session based on finalTime
             val hour = try { 
                 finalTime.substringBefore(':').toInt() 
             } catch (e: Exception) { 
@@ -82,15 +84,17 @@ class DashboardViewModel @Inject constructor(
                 else -> "Chiều"
             }
 
-            // AI Pipeline: Save with OCR-detected context
             val entry = LogEntry(
                 date = finalDate,
                 session = session,
                 time = finalTime,
                 bgBefore = result.value.toDouble(), 
-                note = "Auto-scanned via AI Camera (Date/Time detected: ${result.date != null})"
+                note = "Auto-scanned via AI Camera"
             )
             repo.upsert(entry)
+            
+            // AI Pipeline: Realtime LSTM Prediction
+            _realtimePrediction.value = realtimePredictor.onNewGlucose(result.value)
         }
     }
 
@@ -100,8 +104,6 @@ class DashboardViewModel @Inject constructor(
     fun setTimeFilter(filter: DashboardTimeFilter) {
         _timeFilter.value = filter
     }
-
-    // --- AI HbA1c & Trend Engine ---
 
     private fun estimateDailyAvg(fasting: Float): Float {
         val noon = predictor.predict(fasting, 0)
@@ -159,8 +161,9 @@ class DashboardViewModel @Inject constructor(
 
     val uiState: StateFlow<DashboardUiState> = combine(
         repo.getAllEntries(),
-        _timeFilter
-    ) { allEntries, filter ->
+        _timeFilter,
+        _realtimePrediction
+    ) { allEntries, filter, realtime ->
         val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
         val outputSdf = SimpleDateFormat("dd/MM", Locale.getDefault())
         
@@ -216,7 +219,8 @@ class DashboardViewModel @Inject constructor(
             currentPeriodPoints = currentPoints,
             previousPeriodPoints = prevPoints,
             insights = detectRisk.detect(currentEntries, currentSmartAvgs.values.toList()),
-            currentFilter = filter
+            currentFilter = filter,
+            realtimePrediction = realtime
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), DashboardUiState())
 }

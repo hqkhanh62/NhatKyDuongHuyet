@@ -17,8 +17,10 @@ object Normalizer {
 }
 
 data class PredictionResult(
-    val value: Float, // Predicted value in mmol/L
-    val risk: String
+    val current: Float,
+    val next: Float,
+    val trend: Float,
+    val risk: String = "Normal"
 )
 
 object RiskDetector {

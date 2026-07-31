@@ -102,6 +102,10 @@ fun DashboardScreenPro(
             }
 
             item {
+                RealtimePredictionCard(state.realtimePrediction)
+            }
+
+            item {
                 GlucoseChartPro(state)
             }
 
