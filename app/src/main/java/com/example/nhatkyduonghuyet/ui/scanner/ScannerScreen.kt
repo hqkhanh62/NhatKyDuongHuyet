@@ -10,18 +10,12 @@ import android.util.Log
 import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Button
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,6 +29,8 @@ import androidx.core.content.ContextCompat
 import com.example.nhatkyduonghuyet.ml.GlucoseScanner
 import com.example.nhatkyduonghuyet.ml.ScannedGlucoseResult
 import com.google.mlkit.vision.common.InputImage
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.util.concurrent.Executors
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -47,9 +43,12 @@ fun ScannerScreen(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
+    val scope = rememberCoroutineScope()
     
     var lastResult by remember { mutableStateOf<ScannedGlucoseResult?>(null) }
     var isProcessing by remember { mutableStateOf(false) }
+    var showRedFlash by remember { mutableStateOf(false) }
+    var cameraControlState by remember { mutableStateOf<CameraControl?>(null) }
 
     val permissionState = remember { mutableStateOf(false) }
 
@@ -63,6 +62,22 @@ fun ScannerScreen(
         launcher.launch(Manifest.permission.CAMERA)
     }
 
+    suspend fun triggerDangerAlert() {
+        // Double pulse flash effect
+        showRedFlash = true
+        cameraControlState?.enableTorch(true)
+        delay(150)
+        cameraControlState?.enableTorch(false)
+        showRedFlash = false
+        delay(150)
+        showRedFlash = true
+        cameraControlState?.enableTorch(true)
+        delay(150)
+        cameraControlState?.enableTorch(false)
+        delay(500)
+        showRedFlash = false
+    }
+
     fun triggerHealthVibration(isDangerous: Boolean) {
         val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
@@ -73,19 +88,11 @@ fun ScannerScreen(
         }
 
         if (isDangerous) {
-            // SOS Morse Code: ... --- ...
-            // Pattern: [delay, vibrate, delay, vibrate...]
             val dot = 150L
             val dash = 450L
             val gap = 100L
             val letterGap = 300L
-            
-            val pattern = longArrayOf(
-                0, dot, gap, dot, gap, dot, // S
-                letterGap, dash, gap, dash, gap, dash, // O
-                letterGap, dot, gap, dot, gap, dot // S
-            )
-            
+            val pattern = longArrayOf(0, dot, gap, dot, gap, dot, letterGap, dash, gap, dash, gap, dash, letterGap, dot, gap, dot, gap, dot)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 vibrator.vibrate(VibrationEffect.createWaveform(pattern, -1))
             } else {
@@ -93,7 +100,6 @@ fun ScannerScreen(
                 vibrator.vibrate(pattern, -1)
             }
         } else {
-            // Standard short vibrate for success
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 vibrator.vibrate(VibrationEffect.createOneShot(200, VibrationEffect.DEFAULT_AMPLITUDE))
             } else {
@@ -107,22 +113,13 @@ fun ScannerScreen(
         topBar = {
             Surface(shadowElevation = 4.dp) {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .statusBarsPadding()
-                        .height(64.dp)
-                        .padding(horizontal = 4.dp),
+                    modifier = Modifier.fillMaxWidth().statusBarsPadding().height(64.dp).padding(horizontal = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                     }
-                    Text(
-                        text = "Quét máy đo Glucose",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(start = 8.dp)
-                    )
+                    Text(text = "Quét máy đo Glucose", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 8.dp))
                 }
             }
         }
@@ -152,16 +149,17 @@ fun ScannerScreen(
                                             scanner.processImage(
                                                 image,
                                                 onSuccess = { result ->
-                                                    // Trigger SOS if > 13.0 mmol/L, else normal
-                                                    triggerHealthVibration(result.value > 13.0f)
-
+                                                    val isDanger = result.value > 13.0f
+                                                    triggerHealthVibration(isDanger)
+                                                    if (isDanger) {
+                                                        scope.launch { triggerDangerAlert() }
+                                                    }
+                                                    
                                                     lastResult = result
                                                     isProcessing = false
                                                     onGlucoseDetected(result)
                                                 },
-                                                onError = {
-                                                    isProcessing = false
-                                                }
+                                                onError = { isProcessing = false }
                                             )
                                         }
                                         imageProxy.close()
@@ -170,12 +168,8 @@ fun ScannerScreen(
 
                             try {
                                 cameraProvider.unbindAll()
-                                cameraProvider.bindToLifecycle(
-                                    lifecycleOwner,
-                                    CameraSelector.DEFAULT_BACK_CAMERA,
-                                    preview,
-                                    imageAnalysis
-                                )
+                                val camera = cameraProvider.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageAnalysis)
+                                cameraControlState = camera.cameraControl
                             } catch (e: Exception) {
                                 Log.e("Scanner", "Binding failed", e)
                             }
@@ -185,16 +179,30 @@ fun ScannerScreen(
                     modifier = Modifier.fillMaxSize()
                 )
 
-                ScannerOverlay()
+                // The Overlay
+                Box(modifier = Modifier.fillMaxSize()) {
+                    Text(
+                        "Căn giữa màn hình máy đo",
+                        modifier = Modifier.align(Alignment.Center).padding(top = 220.dp),
+                        color = Color.White,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+
+                // Red Flash Overlay UI
+                if (showRedFlash) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Red.copy(alpha = 0.6f))
+                    )
+                }
 
                 lastResult?.let { result ->
                     Surface(
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(24.dp)
-                            .fillMaxWidth(),
+                        modifier = Modifier.align(Alignment.BottomCenter).padding(24.dp).fillMaxWidth(),
                         shape = RoundedCornerShape(16.dp),
-                        color = Color.Black.copy(alpha = 0.85f),
+                        color = if (result.value > 13.0f) Color(0xFFB71C1C) else Color.Black.copy(alpha = 0.85f),
                         contentColor = Color.White
                     ) {
                         Row(
@@ -203,16 +211,13 @@ fun ScannerScreen(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Column {
-                                Text("Phát hiện: ${result.value} mmol/L", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                                if (result.date != null || result.time != null) {
-                                    Text(
-                                        "Ngày giờ: ${result.date ?: ""} ${result.time ?: ""}",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = Color.LightGray
-                                    )
-                                }
+                                Text(if (result.value > 13.0f) "CẢNH BÁO NGUY HIỂM" else "Phát hiện chỉ số", style = MaterialTheme.typography.labelSmall)
+                                Text("${result.value} mmol/L", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                             }
-                            Button(onClick = { navController.popBackStack() }) {
+                            Button(
+                                onClick = { navController.popBackStack() },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black)
+                            ) {
                                 Text("OK")
                             }
                         }
@@ -224,17 +229,5 @@ fun ScannerScreen(
                 }
             }
         }
-    }
-}
-
-@Composable
-fun ScannerOverlay() {
-    Box(modifier = Modifier.fillMaxSize()) {
-        Text(
-            "Căn giữa màn hình máy đo",
-            modifier = Modifier.align(Alignment.Center).padding(top = 220.dp),
-            color = Color.White,
-            style = MaterialTheme.typography.bodyMedium
-        )
     }
 }
