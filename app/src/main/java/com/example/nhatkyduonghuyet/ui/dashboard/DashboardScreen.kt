@@ -28,8 +28,22 @@ fun DashboardScreenPro(
     viewModel: DashboardViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
+    val showRetrain by viewModel.showRetrainDialog.collectAsState()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     var showFilterMenu by remember { mutableStateOf(false) }
+
+    if (showRetrain) {
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissRetrainDialog() },
+            title = { Text("AI Intelligence Upgrade") },
+            text = { Text("Bạn đã có thêm 50 dữ liệu mới. Hệ thống đã sẵn sàng để huấn luyện lại mô hình để dự báo chính xác hơn cho riêng bạn.") },
+            confirmButton = {
+                Button(onClick = { viewModel.dismissRetrainDialog() }) {
+                    Text("Tuyệt vời")
+                }
+            }
+        )
+    }
 
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),

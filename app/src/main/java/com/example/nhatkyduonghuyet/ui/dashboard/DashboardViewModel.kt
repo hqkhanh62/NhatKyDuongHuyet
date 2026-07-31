@@ -10,6 +10,7 @@ import com.example.nhatkyduonghuyet.ml.ScannedGlucoseResult
 import com.example.nhatkyduonghuyet.ai.RealtimePredictor
 import com.example.nhatkyduonghuyet.ai.PredictionResult
 import com.example.nhatkyduonghuyet.ai.MultiStepResult
+import com.example.nhatkyduonghuyet.data.repository.AIRepository
 import com.example.nhatkyduonghuyet.ui.chart.aggregateBySession
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
@@ -60,32 +61,25 @@ class DashboardViewModel @Inject constructor(
     private val repo: LogRepository,
     private val predictor: GlucosePredictor,
     private val realtimePredictor: RealtimePredictor,
-    private val detectRisk: DetectRiskPattern
+    private val detectRisk: DetectRiskPattern,
+    private val aiRepo: AIRepository
 ) : ViewModel() {
 
     private val _realtimePrediction = MutableStateFlow<PredictionResult?>(null)
     private val _multiStepForecast = MutableStateFlow<MultiStepResult?>(null)
+    private val _showRetrainDialog = MutableStateFlow(false)
+    val showRetrainDialog = _showRetrainDialog.asStateFlow()
 
     fun onGlucoseScanned(result: ScannedGlucoseResult) {
         viewModelScope.launch {
+            // ... logic scan existing ...
             val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
             val timeSdf = SimpleDateFormat("HH:mm", Locale.getDefault())
             val now = Date()
-
             val finalTime = result.time ?: timeSdf.format(now)
             val finalDate = result.date ?: sdf.format(now)
-
-            val hour = try { 
-                finalTime.substringBefore(':').toInt() 
-            } catch (e: Exception) { 
-                Calendar.getInstance().get(Calendar.HOUR_OF_DAY) 
-            }
-            
-            val session = when (hour) {
-                in 5..10 -> "Sáng"
-                in 11..15 -> "Trưa"
-                else -> "Chiều"
-            }
+            val hour = try { finalTime.substringBefore(':').toInt() } catch (e: Exception) { Calendar.getInstance().get(Calendar.HOUR_OF_DAY) }
+            val session = when (hour) { in 5..10 -> "Sáng"; in 11..15 -> "Trưa"; else -> "Chiều" }
 
             val entry = LogEntry(
                 date = finalDate,
@@ -96,10 +90,19 @@ class DashboardViewModel @Inject constructor(
             )
             repo.upsert(entry)
             
+            // Check Auto-retrain
+            if (aiRepo.checkRetrainStatus()) {
+                _showRetrainDialog.value = true
+            }
+
             // AI Pipeline: Realtime & Multi-step LSTM
             _realtimePrediction.value = realtimePredictor.onNewGlucose(result.value)
             _multiStepForecast.value = realtimePredictor.predictFuture24Hours()
         }
+    }
+    
+    fun dismissRetrainDialog() {
+        _showRetrainDialog.value = false
     }
 
     private val _timeFilter = MutableStateFlow(DashboardTimeFilter.LAST_15_DAYS)
