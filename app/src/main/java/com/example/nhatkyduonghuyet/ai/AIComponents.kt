@@ -23,6 +23,12 @@ data class PredictionResult(
     val risk: String = "Normal"
 )
 
+data class MultiStepResult(
+    val hourlyForecasts: List<Float>,
+    val maxExpected: Float,
+    val minExpected: Float
+)
+
 object RiskDetector {
     fun detectRisk(mmolValue: Float): String {
         return when {

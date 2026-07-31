@@ -3,12 +3,6 @@ package com.example.nhatkyduonghuyet.ai
 import javax.inject.Inject
 import javax.inject.Singleton
 
-data class MultiStepResult(
-    val hourlyForecasts: List<Float>,
-    val maxExpected: Float,
-    val minExpected: Float
-)
-
 @Singleton
 class RealtimePredictor @Inject constructor(
     private val model: LSTMEngine
@@ -31,15 +25,17 @@ class RealtimePredictor @Inject constructor(
         )
     }
     
+    /**
+     * Recursive forecasting for the next 24 hours (4 steps of 6 hours)
+     */
     fun predictFuture24Hours(): MultiStepResult? {
         val results = mutableListOf<Float>()
         val tempValues = buffer.getAll().toMutableList()
         if (tempValues.size < 5) return null
 
-        // Forecast for 4 major time steps in the next 24 hours (roughly 6h intervals)
         repeat(4) {
-            val tempBuffer = GlucoseBuffer(5)
-            // Use the last 5 points (including newly predicted ones) to predict the next point
+            val tempBuffer = GlucoseBuffer(size = 5)
+            // Feed the last 5 values (original or predicted) back into the LSTM
             tempValues.takeLast(5).forEach { tempBuffer.add(it) }
             
             val next = model.predict(tempBuffer.toInputArray())

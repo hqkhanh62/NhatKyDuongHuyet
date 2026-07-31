@@ -2,6 +2,7 @@ package com.example.nhatkyduonghuyet.ai
 
 import android.content.Context
 import org.tensorflow.lite.Interpreter
+import org.tensorflow.lite.flex.FlexDelegate
 import java.io.FileInputStream
 import java.nio.MappedByteBuffer
 import java.nio.channels.FileChannel
@@ -15,15 +16,18 @@ class LSTMEngine @Inject constructor(private val context: Context) {
 
     init {
         val model = loadModel(context, "lstm_model.tflite")
-        interpreter = Interpreter(model)
+        // LSTM models with Flex ops require the FlexDelegate
+        val options = Interpreter.Options().apply {
+            addDelegate(FlexDelegate())
+        }
+        interpreter = Interpreter(model, options)
     }
 
     fun predict(input: Array<Array<FloatArray>>): Float {
         val output = Array(1) { FloatArray(1) }
         interpreter.run(input, output)
         
-        // De-normalize result (0-1 -> mmol/L)
-        // Using the calibrated Scaler Min/Max
+        // Calibration from training: MIN=4.1, MAX=13.8
         val min = 4.1f
         val max = 13.8f
         return (output[0][0] * (max - min)) + min
