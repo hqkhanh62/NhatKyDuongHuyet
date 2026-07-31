@@ -9,6 +9,7 @@ import com.example.nhatkyduonghuyet.ml.GlucosePredictor
 import com.example.nhatkyduonghuyet.ml.ScannedGlucoseResult
 import com.example.nhatkyduonghuyet.ai.RealtimePredictor
 import com.example.nhatkyduonghuyet.ai.PredictionResult
+import com.example.nhatkyduonghuyet.ai.MultiStepResult
 import com.example.nhatkyduonghuyet.ui.chart.aggregateBySession
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
@@ -50,7 +51,8 @@ data class DashboardUiState(
     val previousPeriodPoints: List<ChartPointPro> = emptyList(),
     val insights: List<String> = emptyList(),
     val currentFilter: DashboardTimeFilter = DashboardTimeFilter.LAST_15_DAYS,
-    val realtimePrediction: PredictionResult? = null
+    val realtimePrediction: PredictionResult? = null,
+    val multiStepForecast: MultiStepResult? = null
 )
 
 @HiltViewModel
@@ -62,6 +64,7 @@ class DashboardViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val _realtimePrediction = MutableStateFlow<PredictionResult?>(null)
+    private val _multiStepForecast = MutableStateFlow<MultiStepResult?>(null)
 
     fun onGlucoseScanned(result: ScannedGlucoseResult) {
         viewModelScope.launch {
@@ -93,8 +96,9 @@ class DashboardViewModel @Inject constructor(
             )
             repo.upsert(entry)
             
-            // AI Pipeline: Realtime LSTM Prediction
+            // AI Pipeline: Realtime & Multi-step LSTM
             _realtimePrediction.value = realtimePredictor.onNewGlucose(result.value)
+            _multiStepForecast.value = realtimePredictor.predictFuture24Hours()
         }
     }
 
@@ -162,8 +166,9 @@ class DashboardViewModel @Inject constructor(
     val uiState: StateFlow<DashboardUiState> = combine(
         repo.getAllEntries(),
         _timeFilter,
-        _realtimePrediction
-    ) { allEntries, filter, realtime ->
+        _realtimePrediction,
+        _multiStepForecast
+    ) { allEntries, filter, realtime, multiStep ->
         val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
         val outputSdf = SimpleDateFormat("dd/MM", Locale.getDefault())
         
@@ -220,7 +225,8 @@ class DashboardViewModel @Inject constructor(
             previousPeriodPoints = prevPoints,
             insights = detectRisk.detect(currentEntries, currentSmartAvgs.values.toList()),
             currentFilter = filter,
-            realtimePrediction = realtime
+            realtimePrediction = realtime,
+            multiStepForecast = multiStep
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), DashboardUiState())
 }

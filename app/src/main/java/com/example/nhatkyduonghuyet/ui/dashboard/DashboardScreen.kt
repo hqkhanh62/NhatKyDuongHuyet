@@ -102,7 +102,7 @@ fun DashboardScreenPro(
             }
 
             item {
-                RealtimePredictionCard(state.realtimePrediction)
+                RealtimePredictionCard(state.realtimePrediction, state.multiStepForecast)
             }
 
             item {
