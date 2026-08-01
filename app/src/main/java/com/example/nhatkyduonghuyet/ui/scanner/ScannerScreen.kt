@@ -32,6 +32,7 @@ import com.google.mlkit.vision.common.InputImage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -43,12 +44,16 @@ fun ScannerScreen(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
+    DisposableEffect(cameraExecutor) {
+        onDispose { cameraExecutor.shutdown() }
+    }
     val scope = rememberCoroutineScope()
     
     var lastResult by remember { mutableStateOf<ScannedGlucoseResult?>(null) }
-    var isProcessing by remember { mutableStateOf(false) }
     var showRedFlash by remember { mutableStateOf(false) }
     var cameraControlState by remember { mutableStateOf<CameraControl?>(null) }
+    val isProcessing = remember { AtomicBoolean(false) }
+    val hasResult = remember { AtomicBoolean(false) }
 
     val permissionState = remember { mutableStateOf(false) }
 
@@ -143,12 +148,12 @@ fun ScannerScreen(
                                 .also {
                                     it.setAnalyzer(cameraExecutor) { imageProxy ->
                                         val mediaImage = imageProxy.image
-                                        if (mediaImage != null && !isProcessing) {
+                                        if (mediaImage != null && !hasResult.get() && isProcessing.compareAndSet(false, true)) {
                                             val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
-                                            isProcessing = true
                                             scanner.processImage(
                                                 image,
                                                 onSuccess = { result ->
+                                                    hasResult.set(true)
                                                     val isDanger = result.value > 13.0f
                                                     triggerHealthVibration(isDanger)
                                                     if (isDanger) {
@@ -156,13 +161,18 @@ fun ScannerScreen(
                                                     }
                                                     
                                                     lastResult = result
-                                                    isProcessing = false
                                                     onGlucoseDetected(result)
                                                 },
-                                                onError = { isProcessing = false }
+                                                onNoResult = {},
+                                                onError = { Log.w("Scanner", "OCR failed", it) },
+                                                onComplete = {
+                                                    isProcessing.set(false)
+                                                    imageProxy.close()
+                                                }
                                             )
+                                        } else {
+                                            imageProxy.close()
                                         }
-                                        imageProxy.close()
                                     }
                                 }
 

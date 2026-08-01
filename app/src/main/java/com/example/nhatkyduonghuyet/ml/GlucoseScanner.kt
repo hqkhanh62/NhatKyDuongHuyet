@@ -20,7 +20,9 @@ class GlucoseScanner @Inject constructor() {
     fun processImage(
         image: InputImage,
         onSuccess: (ScannedGlucoseResult) -> Unit,
-        onError: (Exception) -> Unit
+        onNoResult: () -> Unit,
+        onError: (Exception) -> Unit,
+        onComplete: () -> Unit
     ) {
         recognizer.process(image)
             .addOnSuccessListener { visionText ->
@@ -30,10 +32,16 @@ class GlucoseScanner @Inject constructor() {
                     val date = extractDate(rawText)
                     val time = extractTime(rawText)
                     onSuccess(ScannedGlucoseResult(value, date, time))
+                } else {
+                    onNoResult()
                 }
             }
             .addOnFailureListener { e ->
                 onError(e)
+            }
+            .addOnCompleteListener {
+                // The CameraX frame is released only after ML Kit has finished reading it.
+                onComplete()
             }
     }
 
