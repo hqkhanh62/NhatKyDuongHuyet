@@ -21,11 +21,10 @@ object AppModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): AppDatabase {
         return Room.databaseBuilder(
-            context,
+            context.applicationContext,
             AppDatabase::class.java,
             "nhat_ky_duong_huyet_db"
         )
-        .fallbackToDestructiveMigration()
         .build()
     }
 

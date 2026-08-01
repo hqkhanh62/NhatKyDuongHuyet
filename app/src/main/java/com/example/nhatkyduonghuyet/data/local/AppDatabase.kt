@@ -23,7 +23,6 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "nhat_ky_duong_huyet_db"
                 )
-                .fallbackToDestructiveMigration() // Tránh crash khi thay đổi Schema
                 .build()
                 INSTANCE = instance
                 instance
