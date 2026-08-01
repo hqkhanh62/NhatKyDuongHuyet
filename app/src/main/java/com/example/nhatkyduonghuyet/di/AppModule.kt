@@ -4,8 +4,8 @@ import android.content.Context
 import androidx.room.Room
 import com.example.nhatkyduonghuyet.data.local.dao.LogEntryDao
 import com.example.nhatkyduonghuyet.data.local.AppDatabase
-import com.example.nhatkyduonghuyet.data.repository.LogRepository
-import com.example.nhatkyduonghuyet.data.LogEntryRepository
+import com.example.nhatkyduonghuyet.data.repository.LogRepositoryImpl
+import com.example.nhatkyduonghuyet.domain.repository.LogRepository
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -34,12 +34,6 @@ object AppModule {
     @Provides
     @Singleton
     fun provideLogRepository(dao: LogEntryDao): LogRepository {
-        return LogRepository(dao)
-    }
-
-    @Provides
-    @Singleton
-    fun provideLogEntryRepository(dao: LogEntryDao): LogEntryRepository {
-        return LogEntryRepository(dao)
+        return LogRepositoryImpl(dao)
     }
 }

@@ -1,0 +1,233 @@
+nâng cấp cho tôi full Android app PRO cho “Nhật ký đường huyết” theo đúng level production:
+👉 Clean Architecture + Hilt + Room + AI (TFLite/LSTM ready) + Chart + Notification + OCR + Dashboard
+🧠 1. KIẾN TRÚC TỔNG THỂ (PRO LEVEL)
+com.example.nhatkyduonghuyet
+│
+├── data
+│   ├── local
+│   │   ├── entity/LogEntry.kt
+│   │   ├── dao/LogEntryDao.kt
+│   │   ├── database/AppDatabase.kt
+│   │
+│   ├── repository/LogRepositoryImpl.kt
+│   └── ai/AiEngine.kt
+│
+├── domain
+│   ├── model/LogEntryModel.kt
+│   ├── repository/LogRepository.kt
+│   └── usecase/
+│       ├── GetLogsByDate.kt
+│       ├── InsertLog.kt
+│       ├── PredictGlucose.kt
+│
+├── ui
+│   ├── navigation/AppNavHost.kt
+│   ├── dashboard/
+│   ├── detail/
+│   ├── stats/
+│   ├── input/
+│   ├── camera/
+│   ├── components/
+│
+├── di/AppModule.kt
+├── reminder/
+├── utils/
+└── MainActivity.kt
+🧭 2. NAVIGATION (Compose)
+sealed class Screen(val route: String) {
+    object Dashboard : Screen("dashboard")
+    object Detail : Screen("detail/{date}")
+    object Input : Screen("input")
+    object Stats : Screen("stats")
+    object Camera : Screen("camera")
+}
+@Composable
+fun AppNavHost() {
+    val navController = rememberNavController()
+
+    NavHost(navController, startDestination = Screen.Dashboard.route) {
+
+        composable(Screen.Dashboard.route) {
+            DashboardScreen(navController)
+        }
+
+        composable(Screen.Detail.route) {
+            DetailScreen()
+        }
+
+        composable(Screen.Input.route) {
+            InputScreen()
+        }
+
+        composable(Screen.Stats.route) {
+            StatsScreen()
+        }
+
+        composable(Screen.Camera.route) {
+            CameraScreen()
+        }
+    }
+}
+📊 3. DASHBOARD PRO (Chart + AI Insight)
+@Composable
+fun DashboardScreen(
+    navController: NavController,
+    viewModel: DashboardViewModel = hiltViewModel()
+) {
+    val logs by viewModel.logs.collectAsState()
+    val prediction by viewModel.prediction.collectAsState()
+
+    Column(modifier = Modifier.padding(16.dp)) {
+
+        Text("Dashboard", style = MaterialTheme.typography.headlineMedium)
+
+        Spacer(Modifier.height(16.dp))
+
+        GlucoseChart(logs)
+
+        Spacer(Modifier.height(16.dp))
+
+        SummaryCard(logs)
+
+        Spacer(Modifier.height(16.dp))
+
+        prediction?.let {
+            AiInsightCard(it)
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        Button(onClick = { navController.navigate("input") }) {
+            Text("Nhập dữ liệu")
+        }
+    }
+}
+📈 4. CHART (MPAndroidChart)
+@Composable
+fun GlucoseChart(logs: List<LogEntry>) {
+
+    AndroidView(factory = { context ->
+        LineChart(context).apply {
+
+            val entries = logs.mapIndexed { i, log ->
+                Entry(i.toFloat(), log.bgBefore?.toFloat() ?: 0f)
+            }
+
+            val dataSet = LineDataSet(entries, "Đường huyết").apply {
+                lineWidth = 2f
+                setDrawCircles(true)
+            }
+
+            data = LineData(dataSet)
+            invalidate()
+        }
+    })
+}
+🧠 5. AI ENGINE (PRO LEVEL – TFLite + fallback rule-based)
+class AiEngine @Inject constructor(
+    private val context: Context
+) {
+
+    fun predict(logs: List<LogEntry>): String {
+
+        if (logs.size < 5) return "Chưa đủ dữ liệu"
+
+        val avg = logs.mapNotNull { it.bgBefore }.average()
+
+        return when {
+            avg > 10 -> "⚠️ Đường huyết cao – nguy cơ biến chứng"
+            avg < 4 -> "⚠️ Hạ đường huyết"
+            else -> "✅ Ổn định"
+        }
+    }
+}
+👉 Sau này bạn thay bằng:
+LSTM TFLite
+Time-series prediction
+🔔 6. SMART NOTIFICATION (AI)
+fun checkAndNotify(context: Context, logs: List<LogEntry>) {
+
+    val latest = logs.lastOrNull() ?: return
+
+    if (latest.bgBefore != null && latest.bgBefore > 12) {
+
+        val notification = NotificationCompat.Builder(context, "health")
+            .setContentTitle("⚠️ Cảnh báo đường huyết")
+            .setContentText("Giá trị: ${latest.bgBefore}")
+            .setSmallIcon(R.drawable.ic_warning)
+            .build()
+
+        NotificationManagerCompat.from(context).notify(1, notification)
+    }
+}
+📷 7. CAMERA OCR SCREEN (Scan máy đo)
+@Composable
+fun CameraScreen() {
+
+    Box(Modifier.fillMaxSize()) {
+
+        CameraPreview()
+
+        Box(
+            Modifier
+                .align(Alignment.Center)
+                .size(250.dp)
+                .border(2.dp, Color.Green)
+        )
+
+        Text(
+            "Đưa màn hình máy đo vào khung",
+            modifier = Modifier.align(Alignment.BottomCenter)
+        )
+    }
+}
+🧾 8. DETAIL SCREEN (AUTO SAVE REALTIME)
+@Composable
+fun DetailScreen(
+    viewModel: DetailViewModel = hiltViewModel()
+) {
+
+    val entries by viewModel.entries.collectAsState()
+
+    LazyColumn {
+        items(entries) { entry ->
+
+            SessionCardV2(
+                entry = entry,
+                onValueChange = {
+                    viewModel.update(it) // autosave
+                }
+            )
+        }
+    }
+}
+📊 9. STATS SCREEN
+@Composable
+fun StatsScreen(
+    viewModel: StatsViewModel = hiltViewModel()
+) {
+    val total by viewModel.total.collectAsState()
+
+    Column {
+        Text("Tổng bản ghi: $total")
+
+        StatItem("Trung bình", "7.2 mmol/L")
+        StatItem("Max", "13.5")
+    }
+}
+🧩 10. HILT DI
+@Module
+@InstallIn(SingletonComponent::class)
+object AppModule {
+
+    @Provides
+    fun provideDb(app: Application): AppDatabase =
+        Room.databaseBuilder(app, AppDatabase::class.java, "db").build()
+
+    @Provides
+    fun provideDao(db: AppDatabase) = db.logEntryDao()
+
+    @Provides
+    fun provideRepo(dao: LogEntryDao): LogRepository =
+        LogRepositoryImpl(dao)
+}
