@@ -1,0 +1,133 @@
+Realtime LSTM update
+
+1. Kiến trúc tổng thể Realtime LSTM
+Android App:
+Room DB → Sliding Window → TFLite → Prediction → UI + Notification
+
+👉 Mục tiêu:
+
+Dự đoán glucose tiếp theo theo buổi (sáng/trưa/chiều)
+Chạy real-time ngay khi user nhập dữ liệu
+Update UI dashboard + cảnh báo
+🧠 2. TRAIN LSTM (Time Series chuẩn)
+✔ Input dạng sequence
+
+Ví dụ:
+
+t-3	t-2	t-1	→ t
+6.5	7.2	8.1	8.6
+
+📱 3. Android – Realtime LSTM Engine
+📦 Gradle
+implementation 'org.tensorflow:tensorflow-lite:2.14.0'
+implementation 'org.tensorflow:tensorflow-lite-support:0.4.4'
+🧠 LSTM Predictor Class
+class LSTMPredictor(context: Context) {
+
+    private val interpreter: Interpreter
+
+    init {
+        val file = FileUtil.loadMappedFile(context, "lstm_glucose.tflite")
+        interpreter = Interpreter(file)
+    }
+
+    fun predict(input: FloatArray): Float {
+        // shape: [1, 5, 1]
+        val inputBuffer = Array(1) { Array(5) { FloatArray(1) } }
+
+        for (i in input.indices) {
+            inputBuffer[0][i][0] = input[i]
+        }
+
+        val output = Array(1) { FloatArray(1) }
+
+        interpreter.run(inputBuffer, output)
+
+        return output[0][0]
+    }
+}
+
+🔁 4. Sliding Window từ Room DB
+fun getLastSequence(entries: List<LogEntry>): FloatArray {
+    return entries.takeLast(5)
+        .map { it.bgBefore?.toFloat() ?: 0f }
+        .toFloatArray()
+}
+⚡ 5. ViewModel Realtime Prediction
+@HiltViewModel
+class PredictionViewModel @Inject constructor(
+    private val repo: LogRepository,
+    application: Application
+) : AndroidViewModel(application) {
+
+    private val predictor = LSTMPredictor(application)
+
+    val prediction = MutableStateFlow<Float?>(null)
+
+    fun runPrediction(entries: List<LogEntry>) {
+        if (entries.size < 5) return
+
+        val input = getLastSequence(entries)
+
+        val result = predictor.predict(input)
+
+        prediction.value = result
+    }
+}
+📊 6. Dashboard UI (Realtime AI)
+@Composable
+fun PredictionCard(prediction: Float?) {
+
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = when {
+                prediction == null -> Color.Gray
+                prediction > 10 -> Color.Red
+                prediction > 7 -> Color(0xFFFFA500)
+                else -> Color(0xFF4CAF50)
+            }
+        )
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+
+            Text("AI Prediction", fontSize = 18.sp)
+
+            Text(
+                text = prediction?.let { "%.1f mmol/L".format(it) } ?: "--",
+                fontSize = 28.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+🚨 7. Notification AI
+fun checkAndNotify(context: Context, value: Float) {
+    if (value > 10f) {
+        NotificationHelper.show(
+            context,
+            "⚠️ Đường huyết cao dự đoán",
+            "AI dự đoán bạn sẽ đạt ${value} mmol/L"
+        )
+    }
+}
+🔥 8. AUTO Realtime Flow
+entriesFlow.collect { entries ->
+    viewModel.runPrediction(entries)
+
+    viewModel.prediction.value?.let {
+        checkAndNotify(context, it)
+    }
+}
+🚀 9. Nâng cấp PRO (bạn nên làm tiếp)
+✅ Multi-feature LSTM
+
+Input:
+
+[glucose, time_of_day]
+✅ Multi-output
+predict:
+- next glucose
+- risk level
+- HbA1c
+✅ Online learning
+update model từ user data

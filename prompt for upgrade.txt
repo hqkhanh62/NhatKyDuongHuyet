@@ -1,0 +1,207 @@
+Nâng cấp lên Realtime LSTM
+
+Thay vì:
+
+Scan → predict 1 lần ❌
+
+Ta sẽ:
+
+Stream dữ liệu → buffer → LSTM → dự đoán liên tục ✅
+
+👉 App sẽ:
+
+Nhớ lịch sử glucose
+Predict mỗi khi có dữ liệu mới
+Cảnh báo sớm (future prediction)
+🧱 2. Kiến trúc realtime
+Camera/OCR → New glucose value
+                    ↓
+            TimeSeriesBuffer
+                    ↓
+              LSTM Engine
+                    ↓
+         Prediction (t+1, t+2…)
+                    ↓
+           UI + Notification
+📦 3. TimeSeries Buffer (cốt lõi)
+class GlucoseBuffer(private val size: Int = 7) {
+
+    private val buffer = ArrayDeque<Float>()
+
+    fun add(value: Float) {
+        if (buffer.size >= size) {
+            buffer.removeFirst()
+        }
+        buffer.addLast(value)
+    }
+
+    fun isReady(): Boolean = buffer.size == size
+
+    fun toInputArray(): Array<Array<FloatArray>> {
+        val arr = Array(1) { Array(size) { FloatArray(1) } }
+
+        buffer.forEachIndexed { i, v ->
+            arr[0][i][0] = v
+        }
+
+        return arr
+    }
+
+    fun getAll(): List<Float> = buffer.toList()
+}
+🤖 4. LSTM Engine (TFLite realtime)
+class LSTMEngine(context: Context) {
+
+    private val interpreter: Interpreter
+
+    init {
+        val model = loadModel(context, "lstm_glucose.tflite")
+        interpreter = Interpreter(model)
+    }
+
+    fun predict(input: Array<Array<FloatArray>>): Float {
+
+        val output = Array(1) { FloatArray(1) }
+
+        interpreter.run(input, output)
+
+        return output[0][0]
+    }
+
+    private fun loadModel(context: Context, name: String): MappedByteBuffer {
+        val file = context.assets.openFd(name)
+        val input = FileInputStream(file.fileDescriptor)
+        val channel = input.channel
+
+        return channel.map(
+            FileChannel.MapMode.READ_ONLY,
+            file.startOffset,
+            file.declaredLength
+        )
+    }
+}
+🧠 5. Realtime Predictor (core logic)
+class RealtimePredictor(
+    private val buffer: GlucoseBuffer,
+    private val model: LSTMEngine
+) {
+
+    fun onNewGlucose(value: Float): PredictionResult? {
+
+        buffer.add(value)
+
+        if (!buffer.isReady()) return null
+
+        val input = buffer.toInputArray()
+
+        val next = model.predict(input)
+
+        val trend = next - value
+
+        return PredictionResult(
+            current = value,
+            next = next,
+            trend = trend
+        )
+    }
+}
+
+data class PredictionResult(
+    val current: Float,
+    val next: Float,
+    val trend: Float
+)
+📱 6. ViewModel (Realtime AI)
+class RealtimeViewModel(
+    private val predictor: RealtimePredictor
+) : ViewModel() {
+
+    var current by mutableStateOf<Float?>(null)
+    var predicted by mutableStateOf<Float?>(null)
+    var trend by mutableStateOf<Float?>(null)
+
+    fun onNewReading(value: Float) {
+
+        current = value
+
+        val result = predictor.onNewGlucose(value)
+
+        result?.let {
+            predicted = it.next
+            trend = it.trend
+        }
+    }
+}
+🎨 7. Compose UI (Realtime dashboard)
+@Composable
+fun RealtimeScreen(vm: RealtimeViewModel) {
+
+    Column {
+
+        Text("Current: ${vm.current ?: "--"}")
+
+        Text("Next (AI): ${vm.predicted ?: "--"}")
+
+        Text(
+            when {
+                vm.trend == null -> ""
+                vm.trend!! > 0 -> "📈 Rising"
+                else -> "📉 Falling"
+            }
+        )
+    }
+}
+🔄 8. Hook với OCR / Scan
+fun onOcrDetected(glucose: Double) {
+    viewModel.onNewReading(glucose.toFloat())
+}
+🔔 9. AI Alert System (rất quan trọng)
+fun checkAlert(pred: Float) {
+
+    when {
+        pred > 10 -> send("⚠️ Sắp tăng cao")
+        pred < 4 -> send("⚠️ Nguy cơ hạ đường huyết")
+    }
+}
+⚡ 10. Multi-step prediction (pro)
+
+Dự đoán tương lai nhiều bước:
+
+fun predictFuture(steps: Int): List<Float> {
+
+    val results = mutableListOf<Float>()
+    val tempBuffer = buffer.getAll().toMutableList()
+
+    repeat(steps) {
+        val input = convert(tempBuffer)
+        val next = model.predict(input)
+
+        results.add(next)
+        tempBuffer.removeAt(0)
+        tempBuffer.add(next)
+    }
+
+    return results
+}
+📊 11. Trend visualization
+🚀 12. Production upgrades (QUAN TRỌNG)
+🔥 Bạn nên thêm:
+✅ Normalize input
+(value - mean) / std
+✅ Confidence score
+dùng variance
+hoặc ensemble models
+
+✅ Background inference
+WorkManager / Coroutine
+không block UI
+🧠 13. Final AI pipeline
+Scan → OCR → Clean value
+      ↓
+ TimeSeries Buffer
+      ↓
+   LSTM realtime
+      ↓
+ Future prediction
+      ↓
+ Alert + UI + HbA1c

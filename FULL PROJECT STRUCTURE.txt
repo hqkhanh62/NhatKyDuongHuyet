@@ -1,0 +1,34 @@
+com.example.nhatkyduonghuyet
+│
+├── data
+│   ├── model
+│   │   ├── LogEntry.kt
+│   │   ├── AdvancedStatsEntity.kt
+│   │   ├── DailyAvgRow.kt
+│   │   └── SessionAverageRow.kt
+│   │
+│   ├── local
+│   │   ├── LogEntryDao.kt
+│   │   └── AppDatabase.kt
+│   │
+│   └── repository
+│       └── LogRepository.kt
+│
+├── di
+│   └── AppModule.kt   ✅ Hilt
+│
+├── ui
+│   ├── screens
+│   │   ├── dashboard
+│   │   ├── detail
+│   │   └── stats
+│   │
+│   └── navigation
+│       └── AppNavHost.kt
+│
+├── viewmodel
+│   ├── LogEntryViewModel.kt
+│   └── StatsViewModel.kt
+│
+├── MainActivity.kt
+└── NhatKyDuongHuyetApplication.kt
