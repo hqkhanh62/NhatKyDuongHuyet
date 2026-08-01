@@ -1,6 +1,7 @@
 package com.example.nhatkyduonghuyet.ai
 
 import android.content.Context
+import dagger.hilt.android.qualifiers.ApplicationContext
 import org.tensorflow.lite.Interpreter
 import org.tensorflow.lite.flex.FlexDelegate
 import java.io.FileInputStream
@@ -10,7 +11,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
-class LSTMEngine @Inject constructor(private val context: Context) {
+class LSTMEngine @Inject constructor(@ApplicationContext private val context: Context) {
 
     private val interpreter: Interpreter
 
