@@ -3,7 +3,7 @@ package com.example.nhatkyduonghuyet.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.nhatkyduonghuyet.data.local.entity.LogEntry
-import com.example.nhatkyduonghuyet.data.repository.LogRepository
+import com.example.nhatkyduonghuyet.domain.repository.LogRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -19,12 +19,12 @@ class DetailViewModel @Inject constructor(
     private val _date = MutableStateFlow("2026-01-01")
 
     val entries: StateFlow<List<LogEntry>> =
-        _date.flatMapLatest { repo.getEntries(it) }
+        _date.flatMapLatest { repo.getLogsByDate(it) }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(), emptyList())
 
     fun onEntryChanged(entry: LogEntry) {
         viewModelScope.launch {
-            repo.update(entry) // 🔥 auto save
+            repo.updateLog(entry) // 🔥 auto save
         }
     }
 }

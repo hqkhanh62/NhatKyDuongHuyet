@@ -3,7 +3,7 @@ package com.example.nhatkyduonghuyet.ui.dashboard
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.nhatkyduonghuyet.data.local.entity.LogEntry
-import com.example.nhatkyduonghuyet.data.repository.LogRepository
+import com.example.nhatkyduonghuyet.domain.repository.LogRepository
 import com.example.nhatkyduonghuyet.domain.usecase.DetectRiskPattern
 import com.example.nhatkyduonghuyet.ml.GlucosePredictor
 import com.example.nhatkyduonghuyet.ml.ScannedGlucoseResult
@@ -99,7 +99,7 @@ class DashboardViewModel @Inject constructor(
                 bgBefore = result.value.toDouble(), 
                 note = "Auto-scanned via AI Camera"
             )
-            repo.upsert(entry)
+            repo.insertLog(entry)
             
             if (aiRepo.checkRetrainStatus()) {
                 _showRetrainDialog.value = true
@@ -180,7 +180,7 @@ class DashboardViewModel @Inject constructor(
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val uiState: StateFlow<DashboardUiState> = combine(
-        repo.getAllEntries(),
+        repo.getAllLogs(),
         _timeFilter,
         _realtimePrediction,
         _multiStepForecast

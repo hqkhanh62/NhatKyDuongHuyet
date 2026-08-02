@@ -10,7 +10,6 @@ import com.example.nhatkyduonghuyet.ui.chart.ChartScreen
 import com.example.nhatkyduonghuyet.ui.detail.DayDetailScreen
 import com.example.nhatkyduonghuyet.ui.home.DateListScreen
 import com.example.nhatkyduonghuyet.ui.dashboard.DashboardScreenPro
-import com.example.nhatkyduonghuyet.ui.navigation.MainPagerScreen
 import com.example.nhatkyduonghuyet.ui.prediction.PredictionScreen
 import com.example.nhatkyduonghuyet.ui.screens.search.SearchScreen
 import com.example.nhatkyduonghuyet.ui.scanner.ScannerScreen
@@ -39,7 +38,7 @@ fun AppNavHost(
             )
         }
 
-        composable(Screen.DayDetail.route + "/{date}") { backStackEntry ->
+        composable(GlucoseScreen.DayDetail.route + "/{date}") { backStackEntry ->
             val date = backStackEntry.arguments?.getString("date") ?: return@composable
             DayDetailScreen(
                 navController = navController,
@@ -48,7 +47,7 @@ fun AppNavHost(
             )
         }
 
-        composable(Screen.Scanner.route) {
+        composable(GlucoseScreen.Scanner.route) {
             val dashboardViewModel: com.example.nhatkyduonghuyet.ui.dashboard.DashboardViewModel = hiltViewModel()
             ScannerScreen(
                 navController = navController,
@@ -59,25 +58,14 @@ fun AppNavHost(
             )
         }
         
-        // These are also accessible via direct navigation if needed (e.g. from notifications)
-        composable(Screen.Chart.route) {
+        composable(GlucoseScreen.Chart.route) {
             ChartScreen(navController = navController, viewModel = viewModel)
         }
-        composable(Screen.Search.route) {
+        composable(GlucoseScreen.Search.route) {
             SearchScreen(navController = navController, viewModel = viewModel)
         }
-        composable(Screen.Prediction.route) {
+        composable(GlucoseScreen.Prediction.route) {
             PredictionScreen(navController = navController, predictor = predictor)
         }
     }
-}
-
-sealed class Screen(val route: String) {
-    object Dashboard : Screen("dashboard")
-    object DateList : Screen("date_list")
-    object DayDetail : Screen("day_detail")
-    object Chart : Screen("chart")
-    object Search : Screen("search")
-    object Prediction : Screen("prediction")
-    object Scanner : Screen("scanner")
 }

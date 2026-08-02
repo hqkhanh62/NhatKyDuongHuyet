@@ -4,7 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.nhatkyduonghuyet.ai.PredictionResult
 import com.example.nhatkyduonghuyet.data.repository.AIRepository
-import com.example.nhatkyduonghuyet.data.repository.LogRepository
+import com.example.nhatkyduonghuyet.domain.repository.LogRepository
 import com.example.nhatkyduonghuyet.data.local.entity.LogEntry
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
@@ -63,7 +63,7 @@ class StatsViewModel @Inject constructor(
     private val _showDaily = MutableStateFlow(false)
     val showDaily = _showDaily.asStateFlow()
 
-    private val allEntries = repo.getAllEntries()
+    private val allEntries = repo.getAllLogs()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(), emptyList())
 
     val filteredEntries: StateFlow<List<LogEntry>> = combine(allEntries, _timeFilter) { entries, filter ->

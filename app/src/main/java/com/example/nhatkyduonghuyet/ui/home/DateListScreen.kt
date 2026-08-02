@@ -24,7 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
-import com.example.nhatkyduonghuyet.ui.navigation.Screen
+import com.example.nhatkyduonghuyet.ui.navigation.GlucoseScreen
 import com.example.nhatkyduonghuyet.util.CsvExportHelper
 import com.example.nhatkyduonghuyet.viewmodel.LogEntryViewModel
 import java.text.SimpleDateFormat
@@ -41,7 +41,6 @@ fun DateListScreen(
     val allLogEntries by viewModel.getAllLogEntries().collectAsState(initial = emptyList())
     val context = LocalContext.current
 
-    // State cho DatePicker chọn ngày mới
     val showDatePicker = remember { mutableStateOf(false) }
     val datePickerState = rememberDatePickerState()
 
@@ -50,10 +49,7 @@ fun DateListScreen(
     val createDocumentLauncher =
         rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri: Uri? ->
             uri?.let {
-                val success = CsvExportHelper.exportLogEntriesToCsv(context, it, allLogEntries)
-                if (success) {
-                    // Success handling
-                }
+                CsvExportHelper.exportLogEntriesToCsv(context, it, allLogEntries)
             }
         }
 
@@ -84,21 +80,21 @@ fun DateListScreen(
                                 text = { Text("Biểu đồ") },
                                 onClick = {
                                     showMenu = false
-                                    navController.navigate(Screen.Chart.route)
+                                    navController.navigate(GlucoseScreen.Chart.route)
                                 }
                             )
                             DropdownMenuItem(
                                 text = { Text("Tìm kiếm") },
                                 onClick = {
                                     showMenu = false
-                                    navController.navigate(Screen.Search.route)
+                                    navController.navigate(GlucoseScreen.Search.route)
                                 }
                             )
                             DropdownMenuItem(
                                 text = { Text("Dự đoán AI") },
                                 onClick = {
                                     showMenu = false
-                                    navController.navigate(Screen.Prediction.route)
+                                    navController.navigate(GlucoseScreen.Prediction.route)
                                 }
                             )
                             DropdownMenuItem(
@@ -143,7 +139,7 @@ fun DateListScreen(
                 DateItem(
                     date = date,
                     onClick = { clickedDate ->
-                        navController.navigate(Screen.DayDetail.route + "/$clickedDate")
+                        navController.navigate(GlucoseScreen.DayDetail.route + "/$clickedDate")
                     }
                 )
             }
@@ -163,7 +159,7 @@ fun DateListScreen(
                                 Locale.getDefault()
                             ).format(Date(millis))
                             showDatePicker.value = false
-                            navController.navigate(Screen.DayDetail.route + "/$formatted")
+                            navController.navigate(GlucoseScreen.DayDetail.route + "/$formatted")
                         } else {
                             showDatePicker.value = false
                         }

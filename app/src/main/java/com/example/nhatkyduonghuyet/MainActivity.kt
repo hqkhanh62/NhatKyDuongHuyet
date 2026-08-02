@@ -6,6 +6,7 @@ import androidx.activity.compose.setContent
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.compose.rememberNavController
 import com.example.nhatkyduonghuyet.ui.navigation.AppNavHost
+import com.example.nhatkyduonghuyet.viewmodel.LogEntryViewModel
 import com.example.nhatkyduonghuyet.ml.GlucosePredictor
 import com.example.nhatkyduonghuyet.ml.GlucoseScanner
 import dagger.hilt.android.AndroidEntryPoint
@@ -22,7 +23,7 @@ class MainActivity : ComponentActivity() {
             val navController = rememberNavController()
             AppNavHost(
                 navController = navController,
-                viewModel = hiltViewModel(),
+                viewModel = hiltViewModel<LogEntryViewModel>(),
                 predictor = predictor,
                 scanner = scanner
             )
