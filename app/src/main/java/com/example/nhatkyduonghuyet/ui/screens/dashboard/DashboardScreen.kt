@@ -1,14 +1,15 @@
 package com.example.nhatkyduonghuyet.ui.screens.dashboard
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.compose.foundation.lazy.LazyColumn
 import com.example.nhatkyduonghuyet.ui.components.GlucoseChart
 import com.example.nhatkyduonghuyet.ui.components.SummaryCard
+import com.example.nhatkyduonghuyet.ui.dashboard.components.RealtimePredictionCard
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -21,7 +22,7 @@ fun DashboardScreen(
 
     Scaffold(
         topBar = {
-            CenterAlignedTopAppBar(title = { Text("Dashboard Sức Khỏe") })
+            CenterAlignedTopAppBar(title = { Text("Dashboard Sức Khỏe Pro") })
         }
     ) { padding ->
         LazyColumn(
@@ -40,16 +41,11 @@ fun DashboardScreen(
             }
 
             item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text("Dự báo từ AI", style = MaterialTheme.typography.titleMedium)
-                        Spacer(Modifier.height(8.dp))
-                        Text(prediction)
-                    }
-                }
+                // Hiển thị thẻ dự báo LSTM thời gian thực
+                RealtimePredictionCard(
+                    prediction = prediction,
+                    multiStep = null // Bạn có thể bổ sung multi-step UseCase sau này
+                )
             }
 
             item {

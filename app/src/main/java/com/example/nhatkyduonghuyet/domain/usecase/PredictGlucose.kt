@@ -1,21 +1,35 @@
 package com.example.nhatkyduonghuyet.domain.usecase
 
+import com.example.nhatkyduonghuyet.ai.PredictionResult
+import com.example.nhatkyduonghuyet.ai.RealtimePredictor
 import com.example.nhatkyduonghuyet.data.local.entity.LogEntry
 import javax.inject.Inject
 
-class PredictGlucose @Inject constructor() {
-    operator fun invoke(logs: List<LogEntry>): String {
-        if (logs.size < 5) return "Chưa đủ dữ liệu dự báo"
-        
-        val allValues = logs.flatMap { listOfNotNull(it.bgBefore, it.bgAfter) }
-        if (allValues.isEmpty()) return "Chưa có dữ liệu đường huyết"
-        
-        val avg = allValues.average()
+class PredictGlucose @Inject constructor(
+    private val realtimePredictor: RealtimePredictor
+) {
+    /**
+     * Thực hiện dự báo dựa trên chuỗi thời gian LSTM
+     * @param logs Danh sách nhật ký để lấy chuỗi 5 điểm gần nhất
+     */
+    operator fun invoke(logs: List<LogEntry>): PredictionResult? {
+        if (logs.isEmpty()) return null
 
-        return when {
-            avg > 10.0 -> "⚠️ Đường huyết trung bình cao – Hãy chú ý ăn uống và vận động"
-            avg < 4.0 -> "⚠️ Nguy cơ hạ đường huyết – Hãy bổ sung đường ngay"
-            else -> "✅ Chỉ số ổn định – Tiếp tục duy trì chế độ hiện tại"
-        }
+        // Lấy tất cả giá trị đường huyết thực tế theo trình tự thời gian
+        val glucoseValues = logs
+            .flatMap { listOfNotNull(it.bgBefore, it.bgAfter) }
+            .takeLast(5)
+            .map { it.toFloat() }
+
+        if (glucoseValues.size < 5) return null
+
+        // Chạy dự báo thông qua bộ nạp mô hình LSTM
+        // Chúng ta giả định giá trị cuối cùng trong chuỗi là 'current'
+        // và LSTM sẽ dự báo giá trị 'next'
+        
+        // Lưu ý: RealtimePredictor đã có buffer nội bộ, 
+        // nhưng ở UseCase này chúng ta có thể truyền chuỗi trực tiếp nếu cần tùy biến cao hơn.
+        // Ở đây ta dùng hàm onNewGlucose để cập nhật điểm mới nhất và nhận dự báo.
+        return realtimePredictor.onNewGlucose(glucoseValues.last())
     }
 }
