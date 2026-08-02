@@ -23,6 +23,34 @@ android {
         targetSdk 34
         versionCode 1
         versionName "1.0"
+        
+        // Optimization: Limit ABIs to reduce APK size (excluding x86 for mobile production)
+        ndk {
+            abiFilters "armeabi-v7a", "arm64-v8a"
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.debug // For now using debug config
+        }
+        debug {
+            minifyEnabled false
+            shrinkResources false
+        }
+    }
+
+    // Optimization: Split APKs per architecture to drastically reduce download size
+    splits {
+        abi {
+            enable true
+            reset()
+            include "armeabi-v7a", "arm64-v8a"
+            universalApk false
+        }
     }
 
     buildFeatures {
