@@ -30,10 +30,4 @@ object AppModule {
 
     @Provides
     fun provideDao(db: AppDatabase) = db.logEntryDao()
-
-    @Provides
-    @Singleton
-    fun provideLogRepository(dao: LogEntryDao): LogRepository {
-        return LogRepositoryImpl(dao)
-    }
 }

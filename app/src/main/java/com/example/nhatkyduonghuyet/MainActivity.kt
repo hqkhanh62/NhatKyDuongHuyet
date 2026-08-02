@@ -21,9 +21,10 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             val navController = rememberNavController()
+            val viewModel: LogEntryViewModel = hiltViewModel()
             AppNavHost(
                 navController = navController,
-                viewModel = hiltViewModel<LogEntryViewModel>(),
+                viewModel = viewModel,
                 predictor = predictor,
                 scanner = scanner
             )
