@@ -7,8 +7,11 @@ on:
 jobs:
   auto-approve:
     runs-on: ubuntu-latest
-    # Chỉ tự động phê duyệt nếu PR được tạo bởi chính chủ (hqkhanh62) hoặc bot hệ thống
-    if: github.actor == 'hqkhanh62' || github.actor == 'dependabot[bot]'
+    # Tự động phê duyệt cho hqkhanh62 và các Agent/Bots hệ thống
+    if: |
+      github.actor == 'hqkhanh62' || 
+      contains(github.actor, '[bot]') || 
+      contains(github.actor, 'agent')
     steps:
       - name: Approve PR
         uses: hmarr/auto-approve-action@v4
