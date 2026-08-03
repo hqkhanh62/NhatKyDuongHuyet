@@ -71,6 +71,24 @@ class DashboardViewModel @Inject constructor(
     private val _showRetrainDialog = MutableStateFlow(false)
     val showRetrainDialog = _showRetrainDialog.asStateFlow()
 
+    init {
+        viewModelScope.launch {
+            repo.getAllLogs().take(1).collect { logs ->
+                // Lấy 5 bản ghi gần nhất để nạp vào buffer AI
+                val recentLogs = logs
+                    .sortedWith(compareByDescending<LogEntry> { it.date }.thenByDescending { it.time })
+                    .take(5)
+                    .reversed()
+                
+                recentLogs.forEach { log ->
+                    val glucose = (log.bgBefore ?: log.value.toDouble()).toFloat()
+                    _realtimePrediction.value = realtimePredictor.onNewGlucose(glucose)
+                }
+                _multiStepForecast.value = realtimePredictor.predictFuture24Hours()
+            }
+        }
+    }
+
     fun onGlucoseScanned(result: ScannedGlucoseResult) {
         viewModelScope.launch {
             val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())

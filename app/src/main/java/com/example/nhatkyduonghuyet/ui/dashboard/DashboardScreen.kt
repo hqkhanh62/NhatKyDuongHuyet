@@ -18,6 +18,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.example.nhatkyduonghuyet.ui.dashboard.components.*
+import com.example.nhatkyduonghuyet.ui.theme.NhatKyDuongHuyetTheme
+import com.example.nhatkyduonghuyet.ai.PredictionResult
+import com.example.nhatkyduonghuyet.ai.MultiStepResult
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -29,16 +32,39 @@ fun DashboardScreenPro(
 ) {
     val state by viewModel.uiState.collectAsState()
     val showRetrain by viewModel.showRetrainDialog.collectAsState()
+    
+    DashboardScreenProContent(
+        state = state,
+        showRetrain = showRetrain,
+        onDismissRetrain = { viewModel.dismissRetrainDialog() },
+        onTimeFilterSelected = { viewModel.setTimeFilter(it) },
+        onViewDetails = onViewDetails,
+        onNavigateToPrediction = onNavigateToPrediction,
+        onNavigateToScanner = onNavigateToScanner
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DashboardScreenProContent(
+    state: DashboardUiState,
+    showRetrain: Boolean,
+    onDismissRetrain: () -> Unit,
+    onTimeFilterSelected: (DashboardTimeFilter) -> Unit,
+    onViewDetails: () -> Unit,
+    onNavigateToPrediction: () -> Unit,
+    onNavigateToScanner: () -> Unit
+) {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     var showFilterMenu by remember { mutableStateOf(false) }
 
     if (showRetrain) {
         AlertDialog(
-            onDismissRequest = { viewModel.dismissRetrainDialog() },
+            onDismissRequest = onDismissRetrain,
             title = { Text("AI Intelligence Upgrade") },
             text = { Text("Bạn đã có thêm 50 dữ liệu mới. Hệ thống đã sẵn sàng để huấn luyện lại mô hình để dự báo chính xác hơn cho riêng bạn.") },
             confirmButton = {
-                Button(onClick = { viewModel.dismissRetrainDialog() }) {
+                Button(onClick = onDismissRetrain) {
                     Text("Tuyệt vời")
                 }
             }
@@ -63,7 +89,7 @@ fun DashboardScreenPro(
                                 DropdownMenuItem(
                                     text = { Text(filter.label) },
                                     onClick = {
-                                        viewModel.setTimeFilter(filter)
+                                        onTimeFilterSelected(filter)
                                         showFilterMenu = false
                                     },
                                     trailingIcon = {
@@ -143,7 +169,41 @@ fun DashboardScreenPro(
 @Preview(showBackground = true)
 @Composable
 fun DashboardProPreview() {
-    MaterialTheme {
-        DashboardScreenPro(onViewDetails = {}, onNavigateToPrediction = {}, onNavigateToScanner = {})
+    val sampleState = DashboardUiState(
+        max = 8.5,
+        maxCompare = ComparisonData(0.5, 6.0, false),
+        avg = 6.2,
+        avgCompare = ComparisonData(-0.3, -4.5, true),
+        highRate = 12,
+        highRateCompare = ComparisonData(-2.0, -15.0, true),
+        hba1c = 6.4,
+        hba1cCompare = ComparisonData(0.1, 1.5, false),
+        insights = listOf(
+            "Đường huyết của bạn đang có xu hướng ổn định hơn.",
+            "Cần chú ý lượng Carb trong bữa tối."
+        ),
+        realtimePrediction = PredictionResult(
+            current = 6.2f,
+            next = 6.5f,
+            trend = 0.3f,
+            risk = "Low"
+        ),
+        multiStepForecast = MultiStepResult(
+            hourlyForecasts = listOf(6.5f, 6.8f, 7.2f, 7.0f, 6.7f),
+            maxExpected = 7.5f,
+            minExpected = 5.5f
+        )
+    )
+
+    NhatKyDuongHuyetTheme {
+        DashboardScreenProContent(
+            state = sampleState,
+            showRetrain = false,
+            onDismissRetrain = {},
+            onTimeFilterSelected = {},
+            onViewDetails = {},
+            onNavigateToPrediction = {},
+            onNavigateToScanner = {}
+        )
     }
 }

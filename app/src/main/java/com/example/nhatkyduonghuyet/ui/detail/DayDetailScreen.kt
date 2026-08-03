@@ -263,7 +263,7 @@ fun SessionEntryCard(
     }
 }
 
-@Preview(showBackground = true)
+@Preview(showBackground = true, name = "DayDetail Review")
 @Composable
 fun DayDetailReviewPreview() {
     MaterialTheme {
