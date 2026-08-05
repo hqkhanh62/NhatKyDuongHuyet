@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.nhatkyduonghuyet.data.local.entity.LogEntry
 import com.example.nhatkyduonghuyet.domain.repository.LogRepository
 import com.example.nhatkyduonghuyet.domain.usecase.DetectRiskPattern
+import com.example.nhatkyduonghuyet.domain.usecase.GeminiAnalysisUseCase
 import com.example.nhatkyduonghuyet.ml.GlucosePredictor
 import com.example.nhatkyduonghuyet.ml.ScannedGlucoseResult
 import com.example.nhatkyduonghuyet.ai.RealtimePredictor
@@ -54,7 +55,8 @@ data class DashboardUiState(
     val insights: List<String> = emptyList(),
     val currentFilter: DashboardTimeFilter = DashboardTimeFilter.LAST_15_DAYS,
     val realtimePrediction: PredictionResult? = null,
-    val multiStepForecast: MultiStepResult? = null
+    val multiStepForecast: MultiStepResult? = null,
+    val geminiInsight: String? = null
 )
 
 @HiltViewModel
@@ -63,11 +65,13 @@ class DashboardViewModel @Inject constructor(
     private val predictor: GlucosePredictor,
     private val realtimePredictor: RealtimePredictor,
     private val detectRisk: DetectRiskPattern,
-    private val aiRepo: AIRepository
+    private val aiRepo: AIRepository,
+    private val geminiUseCase: GeminiAnalysisUseCase
 ) : ViewModel() {
 
     private val _realtimePrediction = MutableStateFlow<PredictionResult?>(null)
     private val _multiStepForecast = MutableStateFlow<MultiStepResult?>(null)
+    private val _geminiInsight = MutableStateFlow<String?>(null)
     private val _showRetrainDialog = MutableStateFlow(false)
     val showRetrainDialog = _showRetrainDialog.asStateFlow()
 
@@ -85,7 +89,25 @@ class DashboardViewModel @Inject constructor(
                     _realtimePrediction.value = realtimePredictor.onNewGlucose(glucose)
                 }
                 _multiStepForecast.value = realtimePredictor.predictFuture24Hours()
+
+                // Kích hoạt phân tích Gemini nếu có dữ liệu
+                if (logs.isNotEmpty()) {
+                    updateGeminiAnalysis(logs)
+                }
             }
+        }
+    }
+
+    private fun updateGeminiAnalysis(logs: List<LogEntry>) {
+        viewModelScope.launch {
+            val historyString = logs
+                .sortedWith(compareByDescending<LogEntry> { it.date }.thenByDescending { it.time })
+                .take(20)
+                .joinToString("\n") { "${it.date} ${it.time}: ${it.bgBefore ?: it.value} mmol/L" }
+            
+            _geminiInsight.value = "Đang phân tích chuyên sâu..."
+            val result = geminiUseCase.getAnalysis(historyString)
+            _geminiInsight.value = result ?: "Không thể kết nối AI để lấy lời khuyên."
         }
     }
 
@@ -201,15 +223,17 @@ class DashboardViewModel @Inject constructor(
         repo.getAllLogs(),
         _timeFilter,
         _realtimePrediction,
-        _multiStepForecast
-    ) { allEntries, filter, realtime, multiStep ->
-        Quad(allEntries, filter, realtime, multiStep)
+        _multiStepForecast,
+        _geminiInsight
+    ) { allEntries, filter, realtime, multiStep, gemini ->
+        DashboardInput(allEntries, filter, realtime, multiStep, gemini)
     }.flatMapLatest { input ->
         flow {
-            val allEntries = input.first
-            val filter = input.second
-            val realtime = input.third
-            val multiStep = input.fourth
+            val allEntries = input.allEntries
+            val filter = input.filter
+            val realtime = input.realtime
+            val multiStep = input.multiStep
+            val gemini = input.gemini
 
             val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
             val outputSdf = SimpleDateFormat("dd/MM", Locale.getDefault())
@@ -268,11 +292,20 @@ class DashboardViewModel @Inject constructor(
                 insights = detectRisk.detect(currentEntries, currentSmartAvgs.values.toList()),
                 currentFilter = filter,
                 realtimePrediction = realtime,
-                multiStepForecast = multiStep
+                multiStepForecast = multiStep,
+                geminiInsight = gemini
             ))
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), DashboardUiState())
 }
+
+data class DashboardInput(
+    val allEntries: List<LogEntry>,
+    val filter: DashboardTimeFilter,
+    val realtime: PredictionResult?,
+    val multiStep: MultiStepResult?,
+    val gemini: String?
+)
 
 data class Quad<out A, out B, out C, out D>(
     val first: A,
