@@ -1,0 +1,13 @@
+# Project Specific Rules
+
+## Backup Workflow
+- **Automatic Backup**: Every time a new task or a significant sub-task begins, the agent must perform a backup commit to GitHub.
+- **Logic**:
+    1. Check for any unstaged or untracked changes (respecting `.gitignore`).
+    2. Stage the changes.
+    3. Commit with a message using the format: `chore: backup before [task name] [skip ci]`.
+    4. The `[skip ci]` tag is mandatory to prevent unnecessary automatic APK builds.
+    5. Push the commit to the current branch.
+- **Security**:
+    1. Never commit `app/src/main/java/com/example/nhatkyduonghuyet/domain/usecase/GeminiAnalysisUseCase.kt` as it contains sensitive API keys. This file must remain in `.gitignore`.
+    2. Always verify that no other secrets are staged before pushing.
