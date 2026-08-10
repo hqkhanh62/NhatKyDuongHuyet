@@ -2,6 +2,8 @@ package com.example.nhatkyduonghuyet.data.repository
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import com.example.nhatkyduonghuyet.ai.*
 import com.example.nhatkyduonghuyet.data.local.dao.LogEntryDao
 import com.example.nhatkyduonghuyet.data.local.entity.LogEntry
@@ -103,5 +105,14 @@ class AIRepository @Inject constructor(
             note = "AI Predicted: ${String.format(Locale.getDefault(), "%.1f", predictionMmol)} mmol/L"
         )
         dao.upsert(entry)
+    }
+
+    fun isOnline(): Boolean {
+        val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val capabilities = connectivityManager.getNetworkCapabilities(connectivityManager.activeNetwork)
+        return capabilities?.let {
+            it.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+            it.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        } ?: false
     }
 }

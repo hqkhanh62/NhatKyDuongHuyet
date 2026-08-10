@@ -21,44 +21,6 @@ import java.text.SimpleDateFormat
 import java.util.*
 import javax.inject.Inject
 
-enum class DashboardTimeFilter(val days: Int, val label: String) {
-    LAST_15_DAYS(15, "15 ngày qua"),
-    LAST_30_DAYS(30, "30 ngày qua"),
-    LAST_60_DAYS(60, "60 ngày qua"),
-    ALL(Int.MAX_VALUE, "Toàn bộ thời gian")
-}
-
-data class ComparisonData(
-    val diff: Double = 0.0,
-    val percentChange: Double = 0.0,
-    val isBetter: Boolean = true 
-)
-
-data class ChartPointPro(
-    val xIndex: Int,
-    val value: Double,
-    val dateLabel: String
-)
-
-data class DashboardUiState(
-    val entries: List<LogEntry> = emptyList(),
-    val max: Double = 0.0,
-    val maxCompare: ComparisonData? = null,
-    val avg: Double = 0.0,
-    val avgCompare: ComparisonData? = null,
-    val highRate: Int = 0,
-    val highRateCompare: ComparisonData? = null,
-    val hba1c: Double = 0.0,
-    val hba1cCompare: ComparisonData? = null,
-    val currentPeriodPoints: List<ChartPointPro> = emptyList(),
-    val previousPeriodPoints: List<ChartPointPro> = emptyList(),
-    val insights: List<String> = emptyList(),
-    val currentFilter: DashboardTimeFilter = DashboardTimeFilter.LAST_15_DAYS,
-    val realtimePrediction: PredictionResult? = null,
-    val multiStepForecast: MultiStepResult? = null,
-    val geminiInsight: String? = null
-)
-
 @HiltViewModel
 class DashboardViewModel @Inject constructor(
     private val repo: LogRepository,
@@ -78,7 +40,7 @@ class DashboardViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             repo.getAllLogs().take(1).collect { logs ->
-                // Lấy 5 bản ghi gần nhất để nạp vào buffer AI
+                // 1. Luôn chạy LSTM (Offline) trước để có số liệu cơ bản
                 val recentLogs = logs
                     .sortedWith(compareByDescending<LogEntry> { it.date }.thenByDescending { it.time })
                     .take(5)
@@ -88,26 +50,32 @@ class DashboardViewModel @Inject constructor(
                     val glucose = (log.bgBefore ?: log.value.toDouble()).toFloat()
                     _realtimePrediction.value = realtimePredictor.onNewGlucose(glucose)
                 }
-                _multiStepForecast.value = realtimePredictor.predictFuture24Hours()
+                val forecast = realtimePredictor.predictFuture24Hours()
+                _multiStepForecast.value = forecast
 
-                // Kích hoạt phân tích Gemini nếu có dữ liệu
+                // 2. Ưu tiên Gemini cho phân tích chuyên sâu nếu có mạng
                 if (logs.isNotEmpty()) {
-                    updateGeminiAnalysis(logs)
+                    updateGeminiAnalysis(logs, forecast)
                 }
             }
         }
     }
 
-    private fun updateGeminiAnalysis(logs: List<LogEntry>) {
+    private fun updateGeminiAnalysis(logs: List<LogEntry>, forecast: MultiStepResult?) {
         viewModelScope.launch {
+            if (!aiRepo.isOnline()) {
+                _geminiInsight.value = "⚠️ Đang ở chế độ Offline. Sử dụng dự báo LSTM nội bộ."
+                return@launch
+            }
+
             val historyString = logs
                 .sortedWith(compareByDescending<LogEntry> { it.date }.thenByDescending { it.time })
                 .take(20)
                 .joinToString("\n") { "${it.date} ${it.time}: ${it.bgBefore ?: it.value} mmol/L" }
             
-            _geminiInsight.value = "Đang phân tích chuyên sâu..."
-            val result = geminiUseCase.getAnalysis(historyString)
-            _geminiInsight.value = result ?: "Không thể kết nối AI để lấy lời khuyên."
+            _geminiInsight.value = "Đang phân tích chuyên sâu với Gemini..."
+            val result = geminiUseCase.getAnalysis(historyString, forecast)
+            _geminiInsight.value = result ?: "Không thể kết nối Gemini. Vui lòng kiểm tra mạng."
         }
     }
 
@@ -145,8 +113,15 @@ class DashboardViewModel @Inject constructor(
                 _showRetrainDialog.value = true
             }
 
-            _realtimePrediction.value = realtimePredictor.onNewGlucose(result.value)
-            _multiStepForecast.value = realtimePredictor.predictFuture24Hours()
+            // Cập nhật lại cả LSTM và Gemini
+            val newPrediction = realtimePredictor.onNewGlucose(result.value)
+            _realtimePrediction.value = newPrediction
+            val newForecast = realtimePredictor.predictFuture24Hours()
+            _multiStepForecast.value = newForecast
+            
+            repo.getAllLogs().take(1).collect { logs ->
+                updateGeminiAnalysis(logs, newForecast)
+            }
         }
     }
     
