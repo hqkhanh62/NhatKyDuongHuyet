@@ -43,8 +43,7 @@ fun AppNavHost(
             DayDetailScreen(
                 navController = navController,
                 viewModel = viewModel,
-                selectedDate = date,
-                scanner = scanner
+                selectedDate = date
             )
         }
 
