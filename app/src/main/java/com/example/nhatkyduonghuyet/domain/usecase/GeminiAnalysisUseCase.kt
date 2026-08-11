@@ -1,6 +1,7 @@
 package com.example.nhatkyduonghuyet.domain.usecase
 
 import com.example.nhatkyduonghuyet.ai.MultiStepResult
+import com.example.nhatkyduonghuyet.BuildConfig
 import com.google.ai.client.generativeai.GenerativeModel
 import com.google.ai.client.generativeai.type.content
 import kotlinx.coroutines.Dispatchers
@@ -9,8 +10,7 @@ import javax.inject.Inject
 
 class GeminiAnalysisUseCase @Inject constructor() {
 
-    // IMPORTANT: Replace with your actual API Key or secure it in local.properties
-    private val apiKey = "AQ.Ab8RN6KHD7Ziwlff-wCKVipkQ6eLk5v8HlhB2I0pjpsJglt9hw"
+    private val apiKey = BuildConfig.GEMINI_API_KEY
     
     private val model = GenerativeModel(
         modelName = "gemini-1.5-flash",
