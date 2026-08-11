@@ -50,6 +50,10 @@ class DashboardViewModel @Inject constructor(
                     val glucose = (log.bgBefore ?: log.value.toDouble()).toFloat()
                     _realtimePrediction.value = realtimePredictor.onNewGlucose(glucose)
                 }
+                
+                // Tự động hiệu chỉnh sai số mô hình (Bias Correction)
+                aiRepo.autoCalibrate()
+
                 val forecast = realtimePredictor.predictFuture24Hours()
                 _multiStepForecast.value = forecast
 
@@ -119,6 +123,9 @@ class DashboardViewModel @Inject constructor(
             val newForecast = realtimePredictor.predictFuture24Hours()
             _multiStepForecast.value = newForecast
             
+            // Hiệu chỉnh lại sai số sau khi có dữ liệu mới
+            aiRepo.autoCalibrate()
+
             repo.getAllLogs().take(1).collect { logs ->
                 updateGeminiAnalysis(logs, newForecast)
             }
