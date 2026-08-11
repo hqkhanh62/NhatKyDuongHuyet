@@ -1,6 +1,8 @@
 package com.example.nhatkyduonghuyet;
 
+import com.example.nhatkyduonghuyet.di.AIModule;
 import com.example.nhatkyduonghuyet.di.AppModule;
+import com.example.nhatkyduonghuyet.di.RepositoryModule;
 import com.example.nhatkyduonghuyet.ui.dashboard.DashboardViewModel_HiltModules;
 import com.example.nhatkyduonghuyet.viewmodel.DetailViewModel_HiltModules;
 import com.example.nhatkyduonghuyet.viewmodel.LogEntryViewModel_HiltModules;
@@ -129,11 +131,13 @@ public final class NhatKyDuongHuyetApplication_HiltComponents {
 
   @Component(
       modules = {
+          AIModule.class,
           AppModule.class,
           ApplicationContextModule.class,
           HiltWrapper_FragmentGetContextFix_FragmentGetContextFixModule.class,
           ActivityRetainedCBuilderModule.class,
-          ServiceCBuilderModule.class
+          ServiceCBuilderModule.class,
+          RepositoryModule.class
       }
   )
   @Singleton

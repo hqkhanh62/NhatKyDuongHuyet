@@ -2,6 +2,7 @@ package com.example.nhatkyduonghuyet;
 
 import android.os.Bundle;
 import androidx.activity.ComponentActivity;
+import com.example.nhatkyduonghuyet.viewmodel.LogEntryViewModel;
 import com.example.nhatkyduonghuyet.ml.GlucosePredictor;
 import com.example.nhatkyduonghuyet.ml.GlucoseScanner;
 import dagger.hilt.android.AndroidEntryPoint;

@@ -2,8 +2,9 @@ package com.example.nhatkyduonghuyet.ui.dashboard;
 
 import androidx.lifecycle.ViewModel;
 import com.example.nhatkyduonghuyet.data.local.entity.LogEntry;
-import com.example.nhatkyduonghuyet.data.repository.LogRepository;
+import com.example.nhatkyduonghuyet.domain.repository.LogRepository;
 import com.example.nhatkyduonghuyet.domain.usecase.DetectRiskPattern;
+import com.example.nhatkyduonghuyet.domain.usecase.GeminiAnalysisUseCase;
 import com.example.nhatkyduonghuyet.ml.GlucosePredictor;
 import com.example.nhatkyduonghuyet.ml.ScannedGlucoseResult;
 import com.example.nhatkyduonghuyet.ai.RealtimePredictor;
@@ -11,6 +12,7 @@ import com.example.nhatkyduonghuyet.ai.PredictionResult;
 import com.example.nhatkyduonghuyet.ai.MultiStepResult;
 import com.example.nhatkyduonghuyet.data.repository.AIRepository;
 import dagger.hilt.android.lifecycle.HiltViewModel;
+import kotlinx.coroutines.ExperimentalCoroutinesApi;
 import kotlinx.coroutines.flow.*;
 import java.text.SimpleDateFormat;
 import java.util.*;

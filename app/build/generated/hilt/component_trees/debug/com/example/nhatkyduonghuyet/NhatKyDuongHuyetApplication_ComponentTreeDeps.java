@@ -19,7 +19,9 @@ import dagger.hilt.processor.internal.definecomponent.codegen._dagger_hilt_andro
 import dagger.hilt.processor.internal.definecomponent.codegen._dagger_hilt_components_SingletonComponent;
 import hilt_aggregated_deps._com_example_nhatkyduonghuyet_MainActivity_GeneratedInjector;
 import hilt_aggregated_deps._com_example_nhatkyduonghuyet_NhatKyDuongHuyetApplication_GeneratedInjector;
+import hilt_aggregated_deps._com_example_nhatkyduonghuyet_di_AIModule;
 import hilt_aggregated_deps._com_example_nhatkyduonghuyet_di_AppModule;
+import hilt_aggregated_deps._com_example_nhatkyduonghuyet_di_RepositoryModule;
 import hilt_aggregated_deps._com_example_nhatkyduonghuyet_ui_dashboard_DashboardViewModel_HiltModules_BindsModule;
 import hilt_aggregated_deps._com_example_nhatkyduonghuyet_ui_dashboard_DashboardViewModel_HiltModules_KeyModule;
 import hilt_aggregated_deps._com_example_nhatkyduonghuyet_viewmodel_DetailViewModel_HiltModules_BindsModule;
@@ -70,7 +72,9 @@ import hilt_aggregated_deps._dagger_hilt_android_internal_modules_HiltWrapper_Ac
     aggregatedDeps = {
         _com_example_nhatkyduonghuyet_MainActivity_GeneratedInjector.class,
         _com_example_nhatkyduonghuyet_NhatKyDuongHuyetApplication_GeneratedInjector.class,
+        _com_example_nhatkyduonghuyet_di_AIModule.class,
         _com_example_nhatkyduonghuyet_di_AppModule.class,
+        _com_example_nhatkyduonghuyet_di_RepositoryModule.class,
         _com_example_nhatkyduonghuyet_ui_dashboard_DashboardViewModel_HiltModules_BindsModule.class,
         _com_example_nhatkyduonghuyet_ui_dashboard_DashboardViewModel_HiltModules_KeyModule.class,
         _com_example_nhatkyduonghuyet_viewmodel_DetailViewModel_HiltModules_BindsModule.class,

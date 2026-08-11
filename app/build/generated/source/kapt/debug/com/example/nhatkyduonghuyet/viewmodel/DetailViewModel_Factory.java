@@ -1,6 +1,6 @@
 package com.example.nhatkyduonghuyet.viewmodel;
 
-import com.example.nhatkyduonghuyet.data.repository.LogRepository;
+import com.example.nhatkyduonghuyet.domain.repository.LogRepository;
 import dagger.internal.DaggerGenerated;
 import dagger.internal.Factory;
 import dagger.internal.QualifierMetadata;

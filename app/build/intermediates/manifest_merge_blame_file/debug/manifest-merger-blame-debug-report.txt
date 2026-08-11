@@ -34,20 +34,20 @@
 21    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
 21-->[androidx.work:work-runtime:2.9.0] C:\Users\Khanh\.gradle\caches\transforms-3\f7333ce7af3a18f618637fba86b72143\transformed\work-runtime-2.9.0\AndroidManifest.xml:26:5-77
 21-->[androidx.work:work-runtime:2.9.0] C:\Users\Khanh\.gradle\caches\transforms-3\f7333ce7af3a18f618637fba86b72143\transformed\work-runtime-2.9.0\AndroidManifest.xml:26:22-74
-22
-23    <permission
-23-->[androidx.core:core:1.13.1] C:\Users\Khanh\.gradle\caches\transforms-3\f427d2ae90b72cf443992481b3835bd6\transformed\core-1.13.1\AndroidManifest.xml:22:5-24:47
-24        android:name="com.example.nhatkyduonghuyet.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
-24-->[androidx.core:core:1.13.1] C:\Users\Khanh\.gradle\caches\transforms-3\f427d2ae90b72cf443992481b3835bd6\transformed\core-1.13.1\AndroidManifest.xml:23:9-81
-25        android:protectionLevel="signature" />
-25-->[androidx.core:core:1.13.1] C:\Users\Khanh\.gradle\caches\transforms-3\f427d2ae90b72cf443992481b3835bd6\transformed\core-1.13.1\AndroidManifest.xml:24:9-44
-26
-27    <uses-permission android:name="com.example.nhatkyduonghuyet.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" />
-27-->[androidx.core:core:1.13.1] C:\Users\Khanh\.gradle\caches\transforms-3\f427d2ae90b72cf443992481b3835bd6\transformed\core-1.13.1\AndroidManifest.xml:26:5-97
-27-->[androidx.core:core:1.13.1] C:\Users\Khanh\.gradle\caches\transforms-3\f427d2ae90b72cf443992481b3835bd6\transformed\core-1.13.1\AndroidManifest.xml:26:22-94
-28    <uses-permission android:name="android.permission.INTERNET" />
-28-->[com.google.android.datatransport:transport-backend-cct:2.3.3] C:\Users\Khanh\.gradle\caches\transforms-3\7d332199f44ce1378c77719951bbfd06\transformed\transport-backend-cct-2.3.3\AndroidManifest.xml:26:5-67
-28-->[com.google.android.datatransport:transport-backend-cct:2.3.3] C:\Users\Khanh\.gradle\caches\transforms-3\7d332199f44ce1378c77719951bbfd06\transformed\transport-backend-cct-2.3.3\AndroidManifest.xml:26:22-64
+22    <uses-permission android:name="android.permission.INTERNET" />
+22-->[com.google.ai.client.generativeai:generativeai:0.7.0] C:\Users\Khanh\.gradle\caches\transforms-3\b84f28c5f67a8209a2d0ab50cfdce0f6\transformed\generativeai-0.7.0\AndroidManifest.xml:22:5-67
+22-->[com.google.ai.client.generativeai:generativeai:0.7.0] C:\Users\Khanh\.gradle\caches\transforms-3\b84f28c5f67a8209a2d0ab50cfdce0f6\transformed\generativeai-0.7.0\AndroidManifest.xml:22:22-64
+23
+24    <permission
+24-->[androidx.core:core:1.13.1] C:\Users\Khanh\.gradle\caches\transforms-3\f427d2ae90b72cf443992481b3835bd6\transformed\core-1.13.1\AndroidManifest.xml:22:5-24:47
+25        android:name="com.example.nhatkyduonghuyet.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+25-->[androidx.core:core:1.13.1] C:\Users\Khanh\.gradle\caches\transforms-3\f427d2ae90b72cf443992481b3835bd6\transformed\core-1.13.1\AndroidManifest.xml:23:9-81
+26        android:protectionLevel="signature" />
+26-->[androidx.core:core:1.13.1] C:\Users\Khanh\.gradle\caches\transforms-3\f427d2ae90b72cf443992481b3835bd6\transformed\core-1.13.1\AndroidManifest.xml:24:9-44
+27
+28    <uses-permission android:name="com.example.nhatkyduonghuyet.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" />
+28-->[androidx.core:core:1.13.1] C:\Users\Khanh\.gradle\caches\transforms-3\f427d2ae90b72cf443992481b3835bd6\transformed\core-1.13.1\AndroidManifest.xml:26:5-97
+28-->[androidx.core:core:1.13.1] C:\Users\Khanh\.gradle\caches\transforms-3\f427d2ae90b72cf443992481b3835bd6\transformed\core-1.13.1\AndroidManifest.xml:26:22-94
 29
 30    <application
 30-->G:\NhatKyDuongHuyet_PRO_MAX_FINAL\app\src\main\AndroidManifest.xml:8:5-26:19

@@ -1,6 +1,6 @@
 package com.example.nhatkyduonghuyet.viewmodel;
 
-import com.example.nhatkyduonghuyet.data.LogEntryRepository;
+import com.example.nhatkyduonghuyet.domain.repository.LogRepository;
 import dagger.internal.DaggerGenerated;
 import dagger.internal.Factory;
 import dagger.internal.QualifierMetadata;
@@ -23,9 +23,9 @@ import javax.inject.Provider;
     "cast"
 })
 public final class LogEntryViewModel_Factory implements Factory<LogEntryViewModel> {
-  private final Provider<LogEntryRepository> repositoryProvider;
+  private final Provider<LogRepository> repositoryProvider;
 
-  public LogEntryViewModel_Factory(Provider<LogEntryRepository> repositoryProvider) {
+  public LogEntryViewModel_Factory(Provider<LogRepository> repositoryProvider) {
     this.repositoryProvider = repositoryProvider;
   }
 
@@ -34,11 +34,11 @@ public final class LogEntryViewModel_Factory implements Factory<LogEntryViewMode
     return newInstance(repositoryProvider.get());
   }
 
-  public static LogEntryViewModel_Factory create(Provider<LogEntryRepository> repositoryProvider) {
+  public static LogEntryViewModel_Factory create(Provider<LogRepository> repositoryProvider) {
     return new LogEntryViewModel_Factory(repositoryProvider);
   }
 
-  public static LogEntryViewModel newInstance(LogEntryRepository repository) {
+  public static LogEntryViewModel newInstance(LogRepository repository) {
     return new LogEntryViewModel(repository);
   }
 }

@@ -10,7 +10,7 @@ import javax.inject.Inject
 class GeminiAnalysisUseCase @Inject constructor() {
 
     // IMPORTANT: Replace with your actual API Key or secure it in local.properties
-    private val apiKey = "YOUR_GEMINI_API_KEY_HERE"
+    private val apiKey = "AQ.Ab8RN6KHD7Ziwlff-wCKVipkQ6eLk5v8HlhB2I0pjpsJglt9hw"
     
     private val model = GenerativeModel(
         modelName = "gemini-1.5-flash",

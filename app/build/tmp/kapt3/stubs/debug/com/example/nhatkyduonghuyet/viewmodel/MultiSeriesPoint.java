@@ -3,7 +3,7 @@ package com.example.nhatkyduonghuyet.viewmodel;
 import androidx.lifecycle.ViewModel;
 import com.example.nhatkyduonghuyet.ai.PredictionResult;
 import com.example.nhatkyduonghuyet.data.repository.AIRepository;
-import com.example.nhatkyduonghuyet.data.repository.LogRepository;
+import com.example.nhatkyduonghuyet.domain.repository.LogRepository;
 import com.example.nhatkyduonghuyet.data.local.entity.LogEntry;
 import dagger.hilt.android.lifecycle.HiltViewModel;
 import kotlinx.coroutines.flow.*;

@@ -19,13 +19,13 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <permission
         android:name="com.example.nhatkyduonghuyet.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
         android:protectionLevel="signature" />
 
     <uses-permission android:name="com.example.nhatkyduonghuyet.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" />
-    <uses-permission android:name="android.permission.INTERNET" />
 
     <application
         android:name="com.example.nhatkyduonghuyet.NhatKyDuongHuyetApplication"

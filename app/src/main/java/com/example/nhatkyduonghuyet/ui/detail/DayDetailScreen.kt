@@ -12,26 +12,40 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
+import androidx.camera.core.*
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
 import androidx.navigation.NavController
 import com.example.nhatkyduonghuyet.data.local.entity.LogEntry
+import com.example.nhatkyduonghuyet.ml.GlucoseScanner
+import com.example.nhatkyduonghuyet.ml.ScannedGlucoseResult
 import com.example.nhatkyduonghuyet.viewmodel.LogEntryViewModel
+import com.google.mlkit.vision.common.InputImage
 import java.text.SimpleDateFormat
 import java.util.*
+import java.util.concurrent.Executors
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DayDetailScreen(
     navController: NavController,
     viewModel: LogEntryViewModel,
-    selectedDate: String
+    selectedDate: String,
+    scanner: GlucoseScanner
 ) {
     LaunchedEffect(selectedDate) {
         viewModel.selectDate(selectedDate)
@@ -80,6 +94,7 @@ fun DayDetailScreen(
                 SessionEntryCard(
                     sessionName = sessionName,
                     logEntryState = logEntryState,
+                    scanner = scanner,
                     onSave = { logEntry ->
                         viewModel.upsertLogEntry(logEntry)
                     }
@@ -94,15 +109,40 @@ fun DayDetailScreen(
 fun SessionEntryCard(
     sessionName: String,
     logEntryState: MutableState<LogEntry>,
+    scanner: GlucoseScanner?,
     onSave: (LogEntry) -> Unit
 ) {
     var logEntry by logEntryState
+    var showScanner by remember { mutableStateOf(false) }
+    var scanningField by remember { mutableStateOf("") }
 
     var bgBeforeText by remember(logEntry.id, logEntry.session) {
         mutableStateOf(logEntry.bgBefore?.toString() ?: "")
     }
     var bgAfterText by remember(logEntry.id, logEntry.session) {
         mutableStateOf(logEntry.bgAfter?.toString() ?: "")
+    }
+
+    fun handleScannerResult(value: Float) {
+        var updatedEntry = logEntry.copy()
+        if (scanningField == "bgBefore") {
+            updatedEntry = updatedEntry.copy(bgBefore = value.toDouble())
+            bgBeforeText = value.toString()
+        } else if (scanningField == "bgAfter") {
+            updatedEntry = updatedEntry.copy(bgAfter = value.toDouble())
+            bgAfterText = value.toString()
+        }
+        logEntry = updatedEntry
+        onSave(updatedEntry)
+        showScanner = false
+    }
+
+    if (showScanner && scanner != null) {
+        CameraScannerDialog(
+            scanner = scanner,
+            onDismiss = { showScanner = false },
+            onResult = { handleScannerResult(it) }
+        )
     }
 
     fun handleVoiceResult(field: String, speech: String) {
@@ -164,7 +204,7 @@ fun SessionEntryCard(
             )
             Spacer(modifier = Modifier.height(12.dp))
 
-            VoiceEnabledTextField(
+            SmartInputTextField(
                 value = logEntry.medType ?: "",
                 onValueChange = { logEntry = logEntry.copy(medType = it.ifEmpty { null }) },
                 label = "Loại insulin/thuốc",
@@ -174,7 +214,7 @@ fun SessionEntryCard(
             Spacer(modifier = Modifier.height(8.dp))
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                VoiceEnabledTextField(
+                SmartInputTextField(
                     value = logEntry.dose ?: "",
                     onValueChange = { logEntry = logEntry.copy(dose = it.ifEmpty { null }) },
                     label = "Liều",
@@ -182,7 +222,7 @@ fun SessionEntryCard(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     onVoiceResult = { handleVoiceResult("dose", it) }
                 )
-                VoiceEnabledTextField(
+                SmartInputTextField(
                     value = logEntry.time ?: "",
                     onValueChange = { logEntry = logEntry.copy(time = it.ifEmpty { null }) },
                     label = "Giờ",
@@ -193,7 +233,7 @@ fun SessionEntryCard(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            VoiceEnabledTextField(
+            SmartInputTextField(
                 value = bgBeforeText,
                 onValueChange = { newValue ->
                     if (newValue.isEmpty()) {
@@ -209,12 +249,18 @@ fun SessionEntryCard(
                 },
                 label = "Đường huyết trước (mmol/L)",
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                onVoiceResult = { handleVoiceResult("bgBefore", it) }
+                onVoiceResult = { handleVoiceResult("bgBefore", it) },
+                onCameraClick = if (scanner != null) {
+                    { 
+                        scanningField = "bgBefore"
+                        showScanner = true
+                    }
+                } else null
             )
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            VoiceEnabledTextField(
+            SmartInputTextField(
                 value = bgAfterText,
                 onValueChange = { newValue ->
                     if (newValue.isEmpty()) {
@@ -230,12 +276,18 @@ fun SessionEntryCard(
                 },
                 label = "Đường huyết sau (mmol/L)",
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                onVoiceResult = { handleVoiceResult("bgAfter", it) }
+                onVoiceResult = { handleVoiceResult("bgAfter", it) },
+                onCameraClick = if (scanner != null) {
+                    {
+                        scanningField = "bgAfter"
+                        showScanner = true
+                    }
+                } else null
             )
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            VoiceEnabledTextField(
+            SmartInputTextField(
                 value = logEntry.note ?: "",
                 onValueChange = { logEntry = logEntry.copy(note = it.ifEmpty { null }) },
                 label = "Ghi chú",
@@ -271,11 +323,13 @@ fun DayDetailReviewPreview() {
             SessionEntryCard(
                 sessionName = "Sáng",
                 logEntryState = remember { mutableStateOf(LogEntry(date = "2026", session = "Sáng")) },
+                scanner = null,
                 onSave = {}
             )
             SessionEntryCard(
                 sessionName = "Trưa",
                 logEntryState = remember { mutableStateOf(LogEntry(date = "2026", session = "Trưa")) },
+                scanner = null,
                 onSave = {}
             )
         }
@@ -283,13 +337,14 @@ fun DayDetailReviewPreview() {
 }
 
 @Composable
-fun VoiceEnabledTextField(
+fun SmartInputTextField(
     value: String,
     onValueChange: (String) -> Unit,
     label: String,
     modifier: Modifier = Modifier,
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
-    onVoiceResult: (String) -> Unit
+    onVoiceResult: (String) -> Unit,
+    onCameraClick: (() -> Unit)? = null
 ) {
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult(),
@@ -312,15 +367,95 @@ fun VoiceEnabledTextField(
             unfocusedBorderColor = Color.Gray.copy(alpha = 0.5f)
         ),
         trailingIcon = {
-            IconButton(onClick = {
-                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, "vi-VN")
-                    putExtra(RecognizerIntent.EXTRA_PROMPT, "Đang nghe: $label...")
+            Row {
+                if (onCameraClick != null) {
+                    IconButton(onClick = onCameraClick) {
+                        Icon(Icons.Default.PhotoCamera, contentDescription = "Quét", tint = MaterialTheme.colorScheme.primary)
+                    }
                 }
-                launcher.launch(intent)
-            }) {
-                Icon(Icons.Default.Mic, contentDescription = "Giọng nói", tint = MaterialTheme.colorScheme.primary)
+                IconButton(onClick = {
+                    val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                        putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                        putExtra(RecognizerIntent.EXTRA_LANGUAGE, "vi-VN")
+                        putExtra(RecognizerIntent.EXTRA_PROMPT, "Đang nghe: $label...")
+                    }
+                    launcher.launch(intent)
+                }) {
+                    Icon(Icons.Default.Mic, contentDescription = "Giọng nói", tint = MaterialTheme.colorScheme.primary)
+                }
+            }
+        }
+    )
+}
+
+@OptIn(androidx.camera.core.ExperimentalGetImage::class)
+@Composable
+fun CameraScannerDialog(
+    scanner: GlucoseScanner,
+    onDismiss: () -> Unit,
+    onResult: (Float) -> Unit
+) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
+    var isProcessing by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("HỦY") }
+        },
+        text = {
+            Box(modifier = Modifier.size(300.dp)) {
+                AndroidView(
+                    factory = { ctx ->
+                        val previewView = PreviewView(ctx)
+                        val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
+                        cameraProviderFuture.addListener({
+                            val cameraProvider = cameraProviderFuture.get()
+                            val camPreview = androidx.camera.core.Preview.Builder().build().also {
+                                it.setSurfaceProvider(previewView.surfaceProvider)
+                            }
+                            val imageAnalysis = ImageAnalysis.Builder()
+                                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                                .build()
+                                .also {
+                                    it.setAnalyzer(cameraExecutor) { imageProxy ->
+                                        val mediaImage = imageProxy.image
+                                        if (mediaImage != null && !isProcessing) {
+                                            val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
+                                            isProcessing = true
+                                            scanner.processImage(image, { result ->
+                                                if (result != null) {
+                                                    onResult(result.value)
+                                                }
+                                                isProcessing = false
+                                                imageProxy.close()
+                                            }, {
+                                                isProcessing = false
+                                                imageProxy.close()
+                                            })
+                                        } else {
+                                            imageProxy.close()
+                                        }
+                                    }
+                                }
+                            try {
+                                cameraProvider.unbindAll()
+                                cameraProvider.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, camPreview, imageAnalysis)
+                            } catch (e: Exception) { }
+                        }, ContextCompat.getMainExecutor(ctx))
+                        previewView
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+                // Frame overlay
+                Surface(
+                    modifier = Modifier.size(200.dp).align(Alignment.Center),
+                    color = Color.Transparent,
+                    border = androidx.compose.foundation.BorderStroke(2.dp, Color.Green)
+                ) {}
             }
         }
     )

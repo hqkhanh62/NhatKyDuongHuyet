@@ -8,16 +8,18 @@ import androidx.lifecycle.SavedStateHandle;
 import androidx.lifecycle.ViewModel;
 import com.example.nhatkyduonghuyet.ai.LSTMEngine;
 import com.example.nhatkyduonghuyet.ai.RealtimePredictor;
-import com.example.nhatkyduonghuyet.data.LogEntryRepository;
 import com.example.nhatkyduonghuyet.data.local.AppDatabase;
 import com.example.nhatkyduonghuyet.data.local.dao.LogEntryDao;
 import com.example.nhatkyduonghuyet.data.repository.AIRepository;
-import com.example.nhatkyduonghuyet.data.repository.LogRepository;
+import com.example.nhatkyduonghuyet.data.repository.LogRepositoryImpl;
+import com.example.nhatkyduonghuyet.di.AIModule_ProvideGlucoseScannerFactory;
+import com.example.nhatkyduonghuyet.di.AIModule_ProvideLSTMEngineFactory;
+import com.example.nhatkyduonghuyet.di.AIModule_ProvideRealtimePredictorFactory;
 import com.example.nhatkyduonghuyet.di.AppModule_ProvideDaoFactory;
 import com.example.nhatkyduonghuyet.di.AppModule_ProvideDatabaseFactory;
-import com.example.nhatkyduonghuyet.di.AppModule_ProvideLogEntryRepositoryFactory;
-import com.example.nhatkyduonghuyet.di.AppModule_ProvideLogRepositoryFactory;
+import com.example.nhatkyduonghuyet.domain.repository.LogRepository;
 import com.example.nhatkyduonghuyet.domain.usecase.DetectRiskPattern;
+import com.example.nhatkyduonghuyet.domain.usecase.GeminiAnalysisUseCase;
 import com.example.nhatkyduonghuyet.ml.GlucosePredictor;
 import com.example.nhatkyduonghuyet.ml.GlucoseScanner;
 import com.example.nhatkyduonghuyet.ui.dashboard.DashboardViewModel;
@@ -409,19 +411,22 @@ public final class DaggerNhatKyDuongHuyetApplication_HiltComponents_SingletonC {
 
     private MainActivity injectMainActivity2(MainActivity instance) {
       MainActivity_MembersInjector.injectPredictor(instance, singletonCImpl.glucosePredictorProvider.get());
-      MainActivity_MembersInjector.injectScanner(instance, singletonCImpl.glucoseScannerProvider.get());
+      MainActivity_MembersInjector.injectScanner(instance, singletonCImpl.provideGlucoseScannerProvider.get());
       return instance;
     }
 
     @IdentifierNameString
     private static final class LazyClassKeyProvider {
+      static String com_example_nhatkyduonghuyet_ui_dashboard_DashboardViewModel = "com.example.nhatkyduonghuyet.ui.dashboard.DashboardViewModel";
+
       static String com_example_nhatkyduonghuyet_viewmodel_StatsViewModel = "com.example.nhatkyduonghuyet.viewmodel.StatsViewModel";
 
       static String com_example_nhatkyduonghuyet_viewmodel_DetailViewModel = "com.example.nhatkyduonghuyet.viewmodel.DetailViewModel";
 
       static String com_example_nhatkyduonghuyet_viewmodel_LogEntryViewModel = "com.example.nhatkyduonghuyet.viewmodel.LogEntryViewModel";
 
-      static String com_example_nhatkyduonghuyet_ui_dashboard_DashboardViewModel = "com.example.nhatkyduonghuyet.ui.dashboard.DashboardViewModel";
+      @KeepFieldType
+      DashboardViewModel com_example_nhatkyduonghuyet_ui_dashboard_DashboardViewModel2;
 
       @KeepFieldType
       StatsViewModel com_example_nhatkyduonghuyet_viewmodel_StatsViewModel2;
@@ -431,9 +436,6 @@ public final class DaggerNhatKyDuongHuyetApplication_HiltComponents_SingletonC {
 
       @KeepFieldType
       LogEntryViewModel com_example_nhatkyduonghuyet_viewmodel_LogEntryViewModel2;
-
-      @KeepFieldType
-      DashboardViewModel com_example_nhatkyduonghuyet_ui_dashboard_DashboardViewModel2;
     }
   }
 
@@ -483,16 +485,13 @@ public final class DaggerNhatKyDuongHuyetApplication_HiltComponents_SingletonC {
 
     @IdentifierNameString
     private static final class LazyClassKeyProvider {
-      static String com_example_nhatkyduonghuyet_viewmodel_StatsViewModel = "com.example.nhatkyduonghuyet.viewmodel.StatsViewModel";
-
       static String com_example_nhatkyduonghuyet_viewmodel_LogEntryViewModel = "com.example.nhatkyduonghuyet.viewmodel.LogEntryViewModel";
 
       static String com_example_nhatkyduonghuyet_viewmodel_DetailViewModel = "com.example.nhatkyduonghuyet.viewmodel.DetailViewModel";
 
       static String com_example_nhatkyduonghuyet_ui_dashboard_DashboardViewModel = "com.example.nhatkyduonghuyet.ui.dashboard.DashboardViewModel";
 
-      @KeepFieldType
-      StatsViewModel com_example_nhatkyduonghuyet_viewmodel_StatsViewModel2;
+      static String com_example_nhatkyduonghuyet_viewmodel_StatsViewModel = "com.example.nhatkyduonghuyet.viewmodel.StatsViewModel";
 
       @KeepFieldType
       LogEntryViewModel com_example_nhatkyduonghuyet_viewmodel_LogEntryViewModel2;
@@ -502,6 +501,9 @@ public final class DaggerNhatKyDuongHuyetApplication_HiltComponents_SingletonC {
 
       @KeepFieldType
       DashboardViewModel com_example_nhatkyduonghuyet_ui_dashboard_DashboardViewModel2;
+
+      @KeepFieldType
+      StatsViewModel com_example_nhatkyduonghuyet_viewmodel_StatsViewModel2;
     }
 
     private static final class SwitchingProvider<T> implements Provider<T> {
@@ -526,16 +528,16 @@ public final class DaggerNhatKyDuongHuyetApplication_HiltComponents_SingletonC {
       public T get() {
         switch (id) {
           case 0: // com.example.nhatkyduonghuyet.ui.dashboard.DashboardViewModel 
-          return (T) new DashboardViewModel(singletonCImpl.provideLogRepositoryProvider.get(), singletonCImpl.glucosePredictorProvider.get(), singletonCImpl.realtimePredictorProvider.get(), new DetectRiskPattern(), singletonCImpl.aIRepositoryProvider.get());
+          return (T) new DashboardViewModel(singletonCImpl.bindLogRepositoryProvider.get(), singletonCImpl.glucosePredictorProvider.get(), singletonCImpl.provideRealtimePredictorProvider.get(), new DetectRiskPattern(), singletonCImpl.aIRepositoryProvider.get(), new GeminiAnalysisUseCase());
 
           case 1: // com.example.nhatkyduonghuyet.viewmodel.DetailViewModel 
-          return (T) new DetailViewModel(singletonCImpl.provideLogRepositoryProvider.get());
+          return (T) new DetailViewModel(singletonCImpl.bindLogRepositoryProvider.get());
 
           case 2: // com.example.nhatkyduonghuyet.viewmodel.LogEntryViewModel 
-          return (T) new LogEntryViewModel(singletonCImpl.provideLogEntryRepositoryProvider.get());
+          return (T) new LogEntryViewModel(singletonCImpl.bindLogRepositoryProvider.get());
 
           case 3: // com.example.nhatkyduonghuyet.viewmodel.StatsViewModel 
-          return (T) new StatsViewModel(singletonCImpl.provideLogRepositoryProvider.get(), singletonCImpl.aIRepositoryProvider.get());
+          return (T) new StatsViewModel(singletonCImpl.bindLogRepositoryProvider.get(), singletonCImpl.aIRepositoryProvider.get());
 
           default: throw new AssertionError(id);
         }
@@ -619,19 +621,19 @@ public final class DaggerNhatKyDuongHuyetApplication_HiltComponents_SingletonC {
 
     private Provider<GlucosePredictor> glucosePredictorProvider;
 
-    private Provider<GlucoseScanner> glucoseScannerProvider;
+    private Provider<GlucoseScanner> provideGlucoseScannerProvider;
 
     private Provider<AppDatabase> provideDatabaseProvider;
 
-    private Provider<LogRepository> provideLogRepositoryProvider;
+    private Provider<LogRepositoryImpl> logRepositoryImplProvider;
 
-    private Provider<LSTMEngine> lSTMEngineProvider;
+    private Provider<LogRepository> bindLogRepositoryProvider;
 
-    private Provider<RealtimePredictor> realtimePredictorProvider;
+    private Provider<LSTMEngine> provideLSTMEngineProvider;
+
+    private Provider<RealtimePredictor> provideRealtimePredictorProvider;
 
     private Provider<AIRepository> aIRepositoryProvider;
-
-    private Provider<LogEntryRepository> provideLogEntryRepositoryProvider;
 
     private SingletonCImpl(ApplicationContextModule applicationContextModuleParam) {
       this.applicationContextModule = applicationContextModuleParam;
@@ -646,13 +648,13 @@ public final class DaggerNhatKyDuongHuyetApplication_HiltComponents_SingletonC {
     @SuppressWarnings("unchecked")
     private void initialize(final ApplicationContextModule applicationContextModuleParam) {
       this.glucosePredictorProvider = DoubleCheck.provider(new SwitchingProvider<GlucosePredictor>(singletonCImpl, 0));
-      this.glucoseScannerProvider = DoubleCheck.provider(new SwitchingProvider<GlucoseScanner>(singletonCImpl, 1));
+      this.provideGlucoseScannerProvider = DoubleCheck.provider(new SwitchingProvider<GlucoseScanner>(singletonCImpl, 1));
       this.provideDatabaseProvider = DoubleCheck.provider(new SwitchingProvider<AppDatabase>(singletonCImpl, 3));
-      this.provideLogRepositoryProvider = DoubleCheck.provider(new SwitchingProvider<LogRepository>(singletonCImpl, 2));
-      this.lSTMEngineProvider = DoubleCheck.provider(new SwitchingProvider<LSTMEngine>(singletonCImpl, 5));
-      this.realtimePredictorProvider = DoubleCheck.provider(new SwitchingProvider<RealtimePredictor>(singletonCImpl, 4));
+      this.logRepositoryImplProvider = new SwitchingProvider<>(singletonCImpl, 2);
+      this.bindLogRepositoryProvider = DoubleCheck.provider((Provider) logRepositoryImplProvider);
+      this.provideLSTMEngineProvider = DoubleCheck.provider(new SwitchingProvider<LSTMEngine>(singletonCImpl, 5));
+      this.provideRealtimePredictorProvider = DoubleCheck.provider(new SwitchingProvider<RealtimePredictor>(singletonCImpl, 4));
       this.aIRepositoryProvider = DoubleCheck.provider(new SwitchingProvider<AIRepository>(singletonCImpl, 6));
-      this.provideLogEntryRepositoryProvider = DoubleCheck.provider(new SwitchingProvider<LogEntryRepository>(singletonCImpl, 7));
     }
 
     @Override
@@ -693,25 +695,22 @@ public final class DaggerNhatKyDuongHuyetApplication_HiltComponents_SingletonC {
           return (T) new GlucosePredictor(ApplicationContextModule_ProvideContextFactory.provideContext(singletonCImpl.applicationContextModule));
 
           case 1: // com.example.nhatkyduonghuyet.ml.GlucoseScanner 
-          return (T) new GlucoseScanner();
+          return (T) AIModule_ProvideGlucoseScannerFactory.provideGlucoseScanner();
 
-          case 2: // com.example.nhatkyduonghuyet.data.repository.LogRepository 
-          return (T) AppModule_ProvideLogRepositoryFactory.provideLogRepository(singletonCImpl.logEntryDao());
+          case 2: // com.example.nhatkyduonghuyet.data.repository.LogRepositoryImpl 
+          return (T) new LogRepositoryImpl(singletonCImpl.logEntryDao());
 
           case 3: // com.example.nhatkyduonghuyet.data.local.AppDatabase 
           return (T) AppModule_ProvideDatabaseFactory.provideDatabase(ApplicationContextModule_ProvideContextFactory.provideContext(singletonCImpl.applicationContextModule));
 
           case 4: // com.example.nhatkyduonghuyet.ai.RealtimePredictor 
-          return (T) new RealtimePredictor(singletonCImpl.lSTMEngineProvider.get());
+          return (T) AIModule_ProvideRealtimePredictorFactory.provideRealtimePredictor(singletonCImpl.provideLSTMEngineProvider.get());
 
           case 5: // com.example.nhatkyduonghuyet.ai.LSTMEngine 
-          return (T) new LSTMEngine(ApplicationContextModule_ProvideContextFactory.provideContext(singletonCImpl.applicationContextModule));
+          return (T) AIModule_ProvideLSTMEngineFactory.provideLSTMEngine(ApplicationContextModule_ProvideContextFactory.provideContext(singletonCImpl.applicationContextModule));
 
           case 6: // com.example.nhatkyduonghuyet.data.repository.AIRepository 
           return (T) new AIRepository(ApplicationContextModule_ProvideContextFactory.provideContext(singletonCImpl.applicationContextModule), singletonCImpl.logEntryDao());
-
-          case 7: // com.example.nhatkyduonghuyet.data.LogEntryRepository 
-          return (T) AppModule_ProvideLogEntryRepositoryFactory.provideLogEntryRepository(singletonCImpl.logEntryDao());
 
           default: throw new AssertionError(id);
         }

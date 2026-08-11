@@ -187,11 +187,22 @@ fun ScannerScreen(
 
                 // The Overlay
                 Box(modifier = Modifier.fillMaxSize()) {
+                    // Căn giữa khung hình
+                    Surface(
+                        modifier = Modifier
+                            .size(width = 280.dp, height = 200.dp)
+                            .align(Alignment.Center),
+                        color = Color.Transparent,
+                        border = androidx.compose.foundation.BorderStroke(2.dp, Color.Green.copy(alpha = 0.8f)),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {}
+
                     Text(
-                        "Căn giữa màn hình máy đo",
-                        modifier = Modifier.align(Alignment.Center).padding(top = 220.dp),
+                        "Căn máy đo vào khung xanh",
+                        modifier = Modifier.align(Alignment.Center).padding(top = 240.dp),
                         color = Color.White,
-                        style = MaterialTheme.typography.bodyMedium
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold
                     )
                 }
 

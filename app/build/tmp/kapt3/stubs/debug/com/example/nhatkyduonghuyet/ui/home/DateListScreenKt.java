@@ -7,7 +7,7 @@ import androidx.compose.material3.*;
 import androidx.compose.runtime.Composable;
 import androidx.compose.ui.Modifier;
 import androidx.navigation.NavController;
-import com.example.nhatkyduonghuyet.ui.navigation.Screen;
+import com.example.nhatkyduonghuyet.ui.navigation.GlucoseScreen;
 import com.example.nhatkyduonghuyet.util.CsvExportHelper;
 import com.example.nhatkyduonghuyet.viewmodel.LogEntryViewModel;
 import java.text.SimpleDateFormat;

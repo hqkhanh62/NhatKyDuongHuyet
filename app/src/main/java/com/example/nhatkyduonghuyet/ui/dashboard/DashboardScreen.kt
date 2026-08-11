@@ -164,7 +164,7 @@ fun DashboardScreenProContent(
             }
 
             item {
-                Text("Phân tích thô ng minh", style = MaterialTheme.typography.titleMedium)
+                Text("Phân tích thông minh", style = MaterialTheme.typography.titleMedium)
                 Spacer(modifier = Modifier.height(8.dp))
                 InsightList(state.insights)
             }
