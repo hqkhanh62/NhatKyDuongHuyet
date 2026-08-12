@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.nhatkyduonghuyet.data.local.entity.LogEntry
 import com.example.nhatkyduonghuyet.domain.repository.LogRepository
+import com.example.nhatkyduonghuyet.BuildConfig
 import com.example.nhatkyduonghuyet.domain.usecase.DetectRiskPattern
 import com.example.nhatkyduonghuyet.domain.usecase.GeminiAnalysisUseCase
 import com.example.nhatkyduonghuyet.ml.GlucosePredictor
@@ -60,6 +61,8 @@ class DashboardViewModel @Inject constructor(
                 // 2. Ưu tiên Gemini cho phân tích chuyên sâu nếu có mạng
                 if (logs.isNotEmpty()) {
                     updateGeminiAnalysis(logs, forecast)
+                } else {
+                    _geminiInsight.value = "📝 Hãy nhập dữ liệu để nhận lời khuyên cá nhân hóa từ AI Gemini."
                 }
             }
         }
@@ -68,7 +71,12 @@ class DashboardViewModel @Inject constructor(
     private fun updateGeminiAnalysis(logs: List<LogEntry>, forecast: MultiStepResult?) {
         viewModelScope.launch {
             if (!aiRepo.isOnline()) {
-                _geminiInsight.value = "⚠️ Đang ở chế độ Offline. Sử dụng dự báo LSTM nội bộ."
+                _geminiInsight.value = "⚠️ Chế độ Offline. Kết nối mạng để nhận lời khuyên từ Gemini."
+                return@launch
+            }
+
+            if (BuildConfig.GEMINI_API_KEY.isNullOrEmpty()) {
+                _geminiInsight.value = "❌ Thiếu API Key. Vui lòng cấu hình GEMINI_API_KEY."
                 return@launch
             }
 
@@ -77,9 +85,9 @@ class DashboardViewModel @Inject constructor(
                 .take(20)
                 .joinToString("\n") { "${it.date} ${it.time}: ${it.bgBefore ?: it.value} mmol/L" }
             
-            _geminiInsight.value = "Đang phân tích chuyên sâu với Gemini..."
+            _geminiInsight.value = "⏳ Đang phân tích chuyên sâu với Gemini..."
             val result = geminiUseCase.getAnalysis(historyString, forecast)
-            _geminiInsight.value = result ?: "Không thể kết nối Gemini. Vui lòng kiểm tra mạng."
+            _geminiInsight.value = result ?: "❌ Không thể lấy lời khuyên từ Gemini. Thử lại sau."
         }
     }
 
