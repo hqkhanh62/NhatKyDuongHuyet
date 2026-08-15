@@ -1,14 +1,14 @@
 package com.example.nhatkyduonghuyet.viewmodel
 
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
-import com.example.nhatkyduonghuyet.data.LogEntry
-import com.example.nhatkyduonghuyet.data.LogEntryRepository
+import com.example.nhatkyduonghuyet.data.local.entity.LogEntry
+import com.example.nhatkyduonghuyet.domain.repository.LogRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.test.TestCoroutineDispatcher
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
-import kotlinx.coroutines.test.runBlockingTest
+import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Before
@@ -26,10 +26,10 @@ class LogEntryViewModelTest {
     @get:Rule
     val instantTaskExecutorRule = InstantTaskExecutorRule()
 
-    private val testDispatcher = TestCoroutineDispatcher()
+    private val testDispatcher = UnconfinedTestDispatcher()
 
     @Mock
-    private lateinit var repository: LogEntryRepository
+    private lateinit var repository: LogRepository
 
     private lateinit var viewModel: LogEntryViewModel
 
@@ -37,50 +37,47 @@ class LogEntryViewModelTest {
     fun setup() {
         MockitoAnnotations.openMocks(this)
         Dispatchers.setMain(testDispatcher)
+        
+        // Mock default flows to avoid null errors during init
+        whenever(repository.getAllLogs()).thenReturn(flowOf(emptyList()))
+        
         viewModel = LogEntryViewModel(repository)
     }
 
     @After
     fun tearDown() {
         Dispatchers.resetMain()
-        testDispatcher.cleanupTestCoroutines()
     }
 
     @Test
-    fun `upsertLogEntry calls repository upsert`() = testDispatcher.runBlockingTest {
+    fun `upsertLogEntry calls repository insertLog`() = runTest(testDispatcher) {
         val logEntry = LogEntry(date = "2026-04-26", session = "Sáng", bgBefore = 5.5)
         viewModel.upsertLogEntry(logEntry)
-        verify(repository).upsert(logEntry)
+        verify(repository).insertLog(logEntry)
     }
 
     @Test
-    fun `allDates are collected from repository`() = testDispatcher.runBlockingTest {
-        val dates = listOf("2026-04-26", "2026-04-25")
-        whenever(repository.getAllDates()).thenReturn(flowOf(dates))
+    fun `allDates are collected from repository`() = runTest(testDispatcher) {
+        val entries = listOf(
+            LogEntry(date = "2026-04-26", session = "Sáng"),
+            LogEntry(date = "2026-04-25", session = "Trưa")
+        )
+        whenever(repository.getAllLogs()).thenReturn(flowOf(entries))
 
-        viewModel = LogEntryViewModel(repository) // Re-initialize to trigger init block
+        // Create a new ViewModel to collect from the mocked flow in its init block
+        val viewModel = LogEntryViewModel(repository)
 
-        assertEquals(dates, viewModel.allDates.value)
+        assertEquals(listOf("2026-04-26", "2026-04-25"), viewModel.allDates.value)
     }
 
     @Test
-    fun `entriesForSelectedDate are collected from repository`() = testDispatcher.runBlockingTest {
+    fun `entriesForSelectedDate are collected from repository`() = runTest(testDispatcher) {
         val date = "2026-04-26"
         val entries = listOf(LogEntry(date = date, session = "Sáng", bgBefore = 5.5))
-        whenever(repository.getEntriesForDate(date)).thenReturn(flowOf(entries))
+        whenever(repository.getLogsByDate(date)).thenReturn(flowOf(entries))
 
         viewModel.selectDate(date)
-        testDispatcher.advanceUntilIdle() // Allow coroutines to complete
 
         assertEquals(entries, viewModel.entriesForSelectedDate.value)
-    }
-
-    @Test
-    fun `getAllLogEntries calls repository getAllLogEntries`() = testDispatcher.runBlockingTest {
-        val entries = listOf(LogEntry(date = "2026-04-26", session = "Sáng", bgBefore = 5.5))
-        whenever(repository.getAllLogEntries()).thenReturn(flowOf(entries))
-
-        val result = viewModel.getAllLogEntries()
-        assertEquals(entries, result.value)
     }
 }

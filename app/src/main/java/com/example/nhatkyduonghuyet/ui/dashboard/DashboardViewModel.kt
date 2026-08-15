@@ -174,12 +174,14 @@ class DashboardViewModel @Inject constructor(
     }
 
     val uiState: StateFlow<DashboardUiState> = combine(
-        repo.getAllLogs(),
-        _timeFilter,
-        _realtimePrediction,
-        _multiStepForecast,
-        _forecastStatus,
-        _geminiInsight
+        listOf(
+            repo.getAllLogs(),
+            _timeFilter,
+            _realtimePrediction,
+            _multiStepForecast,
+            _forecastStatus,
+            _geminiInsight
+        )
     ) { args: Array<Any?> ->
         DashboardInput(
             allEntries = args[0] as List<LogEntry>,
