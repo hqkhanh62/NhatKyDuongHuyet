@@ -34,8 +34,7 @@ jobs:
     - name: Prepare APKs for Upload
       run: |
         COMMIT_ID=$(git rev-parse --short HEAD)
-        DATE=$(date +'%Y%m%d_%H%M')
-        find app/build/outputs/apk/debug/ -name "*.apk" -exec bash -c 'mv "$1" "${1%.apk}_${DATE}_${COMMIT_ID}.apk"' _ {} \;
+        find app/build/outputs/apk/debug/ -name "*.apk" -exec bash -c 'mv "$1" "app/build/outputs/apk/debug/app-${COMMIT_ID}-$(basename "$1")"' _ {} \;
 
     - name: Upload APKs
       uses: actions/upload-artifact@v4

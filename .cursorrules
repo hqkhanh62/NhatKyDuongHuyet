@@ -13,5 +13,5 @@
     2. Always verify that no other secrets are staged before pushing.
 
 ## CI/CD and Build Rules
-- **APK Naming**: When the automatic build process (GitHub Actions) runs, the resulting APK filenames must include the Commit ID and the build Timestamp (Format: `OriginalName_YYYYMMDD_HHMM_ShortCommitID.apk`).
-- **Workflow Integrity**: Any modifications to `.github/workflows/build-apk.yml` must preserve the logic that renames APKs with `COMMIT_ID` and `DATE` variables.
+- **APK Naming**: When the automatic build process (GitHub Actions) runs, the resulting APK filenames must be simplified to the format: `app-ShortCommitID-OriginalName.apk`.
+- **Workflow Integrity**: Any modifications to `.github/workflows/build-apk.yml` must preserve the logic that renames APKs with the `COMMIT_ID` variable.
