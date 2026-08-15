@@ -29,7 +29,7 @@ jobs:
     - name: Build with Gradle
       run: ./gradlew assembleDebug
       env:
-        GEMINI_BACKEND_URL: ${{ vars.GEMINI_BACKEND_URL }}
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
     - name: Prepare APKs for Upload
       run: |

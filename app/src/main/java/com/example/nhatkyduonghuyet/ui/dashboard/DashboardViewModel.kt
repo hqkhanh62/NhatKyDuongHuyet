@@ -103,7 +103,7 @@ class DashboardViewModel @Inject constructor(
                     _geminiInsight.value = GeminiInsightUiState.Content(result.insight)
                 }
                 is CloudInsightResult.Failure -> {
-                    _geminiInsight.value = GeminiInsightUiState.Unavailable(result.reason)
+                    _geminiInsight.value = GeminiInsightUiState.Unavailable("Lỗi kết nối AI: ${result.reason}")
                 }
             }
         }

@@ -13,12 +13,10 @@ kapt {
     }
 }
 
-def geminiBackendUrl = providers.gradleProperty("geminiBackendUrl")
-    .orElse(providers.environmentVariable("GEMINI_BACKEND_URL"))
-    .orElse("")
+def geminiApiKey = providers.gradleProperty("geminiApiKey")
+    .orElse(providers.environmentVariable("GEMINI_API_KEY"))
+    .orElse("YOUR_GEMINI_API_KEY_HERE")
     .get()
-    .replace("\\", "\\\\")
-    .replace('"', '\\"')
 
 android {
     namespace 'com.example.nhatkyduonghuyet'
@@ -31,7 +29,7 @@ android {
         versionCode 1
         versionName "1.0"
         
-        buildConfigField "String", "GEMINI_BACKEND_URL", "\"${geminiBackendUrl}\""
+        buildConfigField "String", "GEMINI_API_KEY", "\"${geminiApiKey}\""
     }
 
     buildTypes {
