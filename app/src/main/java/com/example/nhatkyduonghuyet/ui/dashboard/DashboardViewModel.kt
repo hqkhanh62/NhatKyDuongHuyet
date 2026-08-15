@@ -114,12 +114,31 @@ class DashboardViewModel @Inject constructor(
             val now = Date()
             val finalTime = result.time ?: SimpleDateFormat("HH:mm", Locale.getDefault()).format(now)
             val finalDate = result.date ?: SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(now)
+            
             val hour = finalTime.substringBefore(':').toIntOrNull()
                 ?: Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
-            val session = when (hour) {
-                in 5..10 -> "Sáng"
-                in 11..15 -> "Trưa"
-                else -> "Chiều"
+            
+            var session = "Sáng"
+            var bgBefore: Double? = null
+            var bgAfter: Double? = null
+            
+            when {
+                hour < 10 -> {
+                    session = "Sáng"
+                    bgBefore = result.value.toDouble()
+                }
+                hour >= 20 -> {
+                    session = "Chiều"
+                    bgAfter = result.value.toDouble()
+                }
+                hour in 10..15 -> {
+                    session = "Trưa"
+                    bgBefore = result.value.toDouble()
+                }
+                else -> {
+                    session = "Chiều"
+                    bgBefore = result.value.toDouble()
+                }
             }
 
             repo.insertLog(
@@ -127,7 +146,8 @@ class DashboardViewModel @Inject constructor(
                     date = finalDate,
                     session = session,
                     time = finalTime,
-                    bgBefore = result.value.toDouble(),
+                    bgBefore = bgBefore,
+                    bgAfter = bgAfter,
                     note = "Auto-scanned via AI Camera"
                 )
             )

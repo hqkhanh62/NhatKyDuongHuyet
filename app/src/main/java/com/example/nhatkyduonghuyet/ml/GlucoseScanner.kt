@@ -53,21 +53,32 @@ class GlucoseScanner {
     }
 
     private fun extractDate(text: String): String? {
-        // Look for DD/MM or MM/DD or YYYY-MM-DD
-        val dateRegex = Regex("""\b(\d{4}[-/]\d{1,2}[-/]\d{1,2})\b|\b(\d{1,2}[-/]\d{1,2})\b""")
+        // Look for YYYY-MM-DD, DD/MM/YYYY, or DD/MM
+        val dateRegex = Regex("""\b(\d{4}[-/]\d{1,2}[-/]\d{1,2})\b|\b(\d{1,2}[-/]\d{1,2}[-/]\d{4})\b|\b(\d{1,2}[-/]\d{1,2})\b""")
         val match = dateRegex.find(text)?.value ?: return null
         
-        // Normalize to yyyy-MM-dd if possible, otherwise keep raw for further processing
-        return if (match.length <= 5) {
-            // Likely DD/MM, prepend current year
-            val currentYear = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)
+        return try {
             val parts = match.split('/', '-')
-            if (parts.size == 2) {
-                // Assumption: DD/MM
-                "%04d-%02d-%02d".format(currentYear, parts[1].toIntOrNull() ?: 1, parts[0].toIntOrNull() ?: 1)
-            } else match
-        } else {
-            match.replace('/', '-')
+            val currentYear = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)
+            
+            when (parts.size) {
+                3 -> {
+                    if (parts[0].length == 4) {
+                        // YYYY-MM-DD
+                        "%04d-%02d-%02d".format(parts[0].toInt(), parts[1].toInt(), parts[2].toInt())
+                    } else {
+                        // DD/MM/YYYY
+                        "%04d-%02d-%02d".format(parts[2].toInt(), parts[1].toInt(), parts[0].toInt())
+                    }
+                }
+                2 -> {
+                    // DD/MM
+                    "%04d-%02d-%02d".format(currentYear, parts[1].toInt(), parts[0].toInt())
+                }
+                else -> null
+            }
+        } catch (e: Exception) {
+            null
         }
     }
 }
