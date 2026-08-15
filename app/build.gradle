@@ -13,6 +13,13 @@ kapt {
     }
 }
 
+def geminiBackendUrl = providers.gradleProperty("geminiBackendUrl")
+    .orElse(providers.environmentVariable("GEMINI_BACKEND_URL"))
+    .orElse("")
+    .get()
+    .replace("\\", "\\\\")
+    .replace('"', '\\"')
+
 android {
     namespace 'com.example.nhatkyduonghuyet'
     compileSdk 34
@@ -24,7 +31,7 @@ android {
         versionCode 1
         versionName "1.0"
         
-        buildConfigField "String", "GEMINI_API_KEY", "\"${System.env.GEMINI_API_KEY ?: ""}\""
+        buildConfigField "String", "GEMINI_BACKEND_URL", "\"${geminiBackendUrl}\""
     }
 
     buildTypes {
@@ -129,6 +136,6 @@ dependencies {
     implementation 'org.tensorflow:tensorflow-lite-support:0.4.4'
     implementation 'org.tensorflow:tensorflow-lite-select-tf-ops:2.16.1'
 
-    // Google AI SDK (Gemini)
-    implementation("com.google.ai.client.generativeai:generativeai:0.7.0")
+    testImplementation "junit:junit:4.13.2"
+    testImplementation "org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3"
 }

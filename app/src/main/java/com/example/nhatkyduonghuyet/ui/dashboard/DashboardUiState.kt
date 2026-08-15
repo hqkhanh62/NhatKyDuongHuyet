@@ -1,8 +1,8 @@
 package com.example.nhatkyduonghuyet.ui.dashboard
 
-import com.example.nhatkyduonghuyet.data.local.entity.LogEntry
-import com.example.nhatkyduonghuyet.ai.PredictionResult
 import com.example.nhatkyduonghuyet.ai.MultiStepResult
+import com.example.nhatkyduonghuyet.ai.PredictionResult
+import com.example.nhatkyduonghuyet.data.local.entity.LogEntry
 
 enum class DashboardTimeFilter(val days: Int, val label: String) {
     LAST_15_DAYS(15, "15 ngày qua"),
@@ -14,7 +14,7 @@ enum class DashboardTimeFilter(val days: Int, val label: String) {
 data class ComparisonData(
     val diff: Double = 0.0,
     val percentChange: Double = 0.0,
-    val isBetter: Boolean = true 
+    val isBetter: Boolean = true
 )
 
 data class ChartPointPro(
@@ -22,6 +22,13 @@ data class ChartPointPro(
     val value: Double,
     val dateLabel: String
 )
+
+sealed interface GeminiInsightUiState {
+    data object Idle : GeminiInsightUiState
+    data object Loading : GeminiInsightUiState
+    data class Content(val text: String) : GeminiInsightUiState
+    data class Unavailable(val message: String) : GeminiInsightUiState
+}
 
 data class DashboardUiState(
     val entries: List<LogEntry> = emptyList(),
@@ -39,5 +46,6 @@ data class DashboardUiState(
     val currentFilter: DashboardTimeFilter = DashboardTimeFilter.LAST_15_DAYS,
     val realtimePrediction: PredictionResult? = null,
     val multiStepForecast: MultiStepResult? = null,
-    val geminiInsight: String? = null
+    val forecastStatus: String? = null,
+    val geminiInsight: GeminiInsightUiState = GeminiInsightUiState.Idle
 )

@@ -2,7 +2,7 @@ package com.example.nhatkyduonghuyet.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.nhatkyduonghuyet.ai.PredictionResult
+import com.example.nhatkyduonghuyet.ai.PredictionOutcome
 import com.example.nhatkyduonghuyet.data.repository.AIRepository
 import com.example.nhatkyduonghuyet.domain.repository.LogRepository
 import com.example.nhatkyduonghuyet.data.local.entity.LogEntry
@@ -21,10 +21,10 @@ enum class TimeFilter(val days: Int, val label: String) {
 }
 
 data class DashboardAiState(
-    val morningPrediction: Float = 0f,
-    val morningRisk: String = "Calculating...",
-    val afternoonPrediction: Float = 0f,
-    val afternoonRisk: String = "Calculating..."
+    val morningPrediction: Float? = null,
+    val morningRisk: String = "Chưa có dự đoán",
+    val afternoonPrediction: Float? = null,
+    val afternoonRisk: String = "Chưa có dự đoán"
 )
 
 @HiltViewModel
@@ -40,12 +40,18 @@ class StatsViewModel @Inject constructor(
         viewModelScope.launch {
             val morningResult = aiRepo.runPrediction(morningData)
             val afternoonResult = aiRepo.runPrediction(afternoonData)
-            
-            _aiState.value = _aiState.value.copy(
-                morningPrediction = morningResult.next,
-                morningRisk = morningResult.risk,
-                afternoonPrediction = afternoonResult.next,
-                afternoonRisk = afternoonResult.risk
+
+            _aiState.value = DashboardAiState(
+                morningPrediction = (morningResult as? PredictionOutcome.Success)?.value?.next,
+                morningRisk = when (morningResult) {
+                    is PredictionOutcome.Success -> morningResult.value.risk
+                    is PredictionOutcome.Failure -> morningResult.reason
+                },
+                afternoonPrediction = (afternoonResult as? PredictionOutcome.Success)?.value?.next,
+                afternoonRisk = when (afternoonResult) {
+                    is PredictionOutcome.Success -> afternoonResult.value.risk
+                    is PredictionOutcome.Failure -> afternoonResult.reason
+                }
             )
         }
     }

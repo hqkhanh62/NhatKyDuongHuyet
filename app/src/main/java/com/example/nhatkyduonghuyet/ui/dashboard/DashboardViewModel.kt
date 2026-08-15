@@ -2,30 +2,42 @@ package com.example.nhatkyduonghuyet.ui.dashboard
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.nhatkyduonghuyet.ai.MultiStepResult
+import com.example.nhatkyduonghuyet.ai.Normalizer
+import com.example.nhatkyduonghuyet.ai.PredictionOutcome
+import com.example.nhatkyduonghuyet.ai.PredictionResult
+import com.example.nhatkyduonghuyet.ai.RealtimePredictor
 import com.example.nhatkyduonghuyet.data.local.entity.LogEntry
+import com.example.nhatkyduonghuyet.data.repository.AIRepository
 import com.example.nhatkyduonghuyet.domain.repository.LogRepository
-import com.example.nhatkyduonghuyet.BuildConfig
+import com.example.nhatkyduonghuyet.domain.usecase.CloudInsightResult
 import com.example.nhatkyduonghuyet.domain.usecase.DetectRiskPattern
 import com.example.nhatkyduonghuyet.domain.usecase.GeminiAnalysisUseCase
-import com.example.nhatkyduonghuyet.ml.GlucosePredictor
 import com.example.nhatkyduonghuyet.ml.ScannedGlucoseResult
-import com.example.nhatkyduonghuyet.ai.RealtimePredictor
-import com.example.nhatkyduonghuyet.ai.PredictionResult
-import com.example.nhatkyduonghuyet.ai.MultiStepResult
-import com.example.nhatkyduonghuyet.data.repository.AIRepository
-import com.example.nhatkyduonghuyet.ui.chart.aggregateBySession
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
-import java.util.*
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 import javax.inject.Inject
 
 @HiltViewModel
 class DashboardViewModel @Inject constructor(
     private val repo: LogRepository,
-    private val predictor: GlucosePredictor,
     private val realtimePredictor: RealtimePredictor,
     private val detectRisk: DetectRiskPattern,
     private val aiRepo: AIRepository,
@@ -34,272 +46,248 @@ class DashboardViewModel @Inject constructor(
 
     private val _realtimePrediction = MutableStateFlow<PredictionResult?>(null)
     private val _multiStepForecast = MutableStateFlow<MultiStepResult?>(null)
-    private val _geminiInsight = MutableStateFlow<String?>(null)
+    private val _forecastStatus = MutableStateFlow<String?>(null)
+    private val _geminiInsight = MutableStateFlow<GeminiInsightUiState>(GeminiInsightUiState.Idle)
     private val _showRetrainDialog = MutableStateFlow(false)
-    val showRetrainDialog = _showRetrainDialog.asStateFlow()
+    private var insightRequestJob: Job? = null
+    private var lastInsightFingerprint: String? = null
+
+    val showRetrainDialog: StateFlow<Boolean> = _showRetrainDialog
 
     init {
         viewModelScope.launch {
-            repo.getAllLogs().take(1).collect { logs ->
-                // 1. Luôn chạy LSTM (Offline) trước để có số liệu cơ bản
-                val recentLogs = logs
-                    .sortedWith(compareByDescending<LogEntry> { it.date }.thenByDescending { it.time })
-                    .take(5)
-                    .reversed()
-                
-                recentLogs.forEach { log ->
-                    val glucose = (log.bgBefore ?: log.value.toDouble()).toFloat()
-                    _realtimePrediction.value = realtimePredictor.onNewGlucose(glucose)
+            repo.getAllLogs()
+                .map(::validMeasurementsInChronologicalOrder)
+                .distinctUntilChanged()
+                .collectLatest { measurements ->
+                    when (val forecast = realtimePredictor.refresh(measurements)) {
+                        is PredictionOutcome.Success -> {
+                            _realtimePrediction.value = forecast.value.nextPrediction
+                            _multiStepForecast.value = forecast.value.future
+                            _forecastStatus.value = null
+                        }
+                        is PredictionOutcome.Failure -> {
+                            _realtimePrediction.value = null
+                            _multiStepForecast.value = null
+                            _forecastStatus.value = forecast.reason
+                        }
+                    }
                 }
-                
-                // Tự động hiệu chỉnh sai số mô hình (Bias Correction)
-                aiRepo.autoCalibrate()
-
-                val forecast = realtimePredictor.predictFuture24Hours()
-                _multiStepForecast.value = forecast
-
-                // 2. Ưu tiên Gemini cho phân tích chuyên sâu nếu có mạng
-                if (logs.isNotEmpty()) {
-                    updateGeminiAnalysis(logs, forecast)
-                } else {
-                    _geminiInsight.value = "📝 Hãy nhập dữ liệu để nhận lời khuyên cá nhân hóa từ AI Gemini."
-                }
-            }
         }
     }
 
-    private fun updateGeminiAnalysis(logs: List<LogEntry>, forecast: MultiStepResult?) {
-        viewModelScope.launch {
-            if (!aiRepo.isOnline()) {
-                _geminiInsight.value = "⚠️ Chế độ Offline. Kết nối mạng để nhận lời khuyên từ Gemini."
+    fun requestGeminiAnalysis() {
+        if (insightRequestJob?.isActive == true) return
+
+        insightRequestJob = viewModelScope.launch {
+            val logs = repo.getAllLogs().first()
+            if (logs.isEmpty()) {
+                _geminiInsight.value = GeminiInsightUiState.Unavailable("Hãy nhập dữ liệu trước khi yêu cầu phân tích AI.")
                 return@launch
             }
 
-            if (BuildConfig.GEMINI_API_KEY.isNullOrEmpty()) {
-                _geminiInsight.value = "❌ Thiếu API Key. Vui lòng cấu hình GEMINI_API_KEY."
+            val history = logs
+                .sortedWith(compareByDescending<LogEntry> { it.date }.thenByDescending { it.time ?: "" })
+                .take(MAX_CLOUD_HISTORY_ROWS)
+                .joinToString("\n") { "${it.date} ${it.time ?: "--:--"}: ${it.bgBefore ?: it.bgAfter ?: "không có"} mmol/L" }
+            val fingerprint = "$history|${_multiStepForecast.value}"
+
+            if (fingerprint == lastInsightFingerprint && _geminiInsight.value is GeminiInsightUiState.Content) {
                 return@launch
             }
 
-            val historyString = logs
-                .sortedWith(compareByDescending<LogEntry> { it.date }.thenByDescending { it.time })
-                .take(20)
-                .joinToString("\n") { "${it.date} ${it.time}: ${it.bgBefore ?: it.value} mmol/L" }
-            
-            _geminiInsight.value = "⏳ Đang phân tích chuyên sâu với Gemini..."
-            val result = geminiUseCase.getAnalysis(historyString, forecast)
-            _geminiInsight.value = result ?: "❌ Không thể lấy lời khuyên từ Gemini. Thử lại sau."
+            _geminiInsight.value = GeminiInsightUiState.Loading
+            when (val result = geminiUseCase.getAnalysis(history, _multiStepForecast.value)) {
+                is CloudInsightResult.Success -> {
+                    lastInsightFingerprint = fingerprint
+                    _geminiInsight.value = GeminiInsightUiState.Content(result.insight)
+                }
+                is CloudInsightResult.Failure -> {
+                    _geminiInsight.value = GeminiInsightUiState.Unavailable(result.reason)
+                }
+            }
         }
     }
 
     fun onGlucoseScanned(result: ScannedGlucoseResult) {
         viewModelScope.launch {
-            val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-            val timeSdf = SimpleDateFormat("HH:mm", Locale.getDefault())
             val now = Date()
-
-            val finalTime = result.time ?: timeSdf.format(now)
-            val finalDate = result.date ?: sdf.format(now)
-
-            val hour = try { 
-                finalTime.substringBefore(':').toInt() 
-            } catch (e: Exception) { 
-                Calendar.getInstance().get(Calendar.HOUR_OF_DAY) 
-            }
-            
+            val finalTime = result.time ?: SimpleDateFormat("HH:mm", Locale.getDefault()).format(now)
+            val finalDate = result.date ?: SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(now)
+            val hour = finalTime.substringBefore(':').toIntOrNull()
+                ?: Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
             val session = when (hour) {
                 in 5..10 -> "Sáng"
                 in 11..15 -> "Trưa"
                 else -> "Chiều"
             }
 
-            val entry = LogEntry(
-                date = finalDate,
-                session = session,
-                time = finalTime,
-                bgBefore = result.value.toDouble(), 
-                note = "Auto-scanned via AI Camera"
+            repo.insertLog(
+                LogEntry(
+                    date = finalDate,
+                    session = session,
+                    time = finalTime,
+                    bgBefore = result.value.toDouble(),
+                    note = "Auto-scanned via AI Camera"
+                )
             )
-            repo.insertLog(entry)
-            
+            _geminiInsight.value = GeminiInsightUiState.Idle
+            lastInsightFingerprint = null
+            insightRequestJob?.cancel()
+
             if (aiRepo.checkRetrainStatus()) {
                 _showRetrainDialog.value = true
             }
-
-            // Cập nhật lại cả LSTM và Gemini
-            val newPrediction = realtimePredictor.onNewGlucose(result.value)
-            _realtimePrediction.value = newPrediction
-            val newForecast = realtimePredictor.predictFuture24Hours()
-            _multiStepForecast.value = newForecast
-            
-            // Hiệu chỉnh lại sai số sau khi có dữ liệu mới
             aiRepo.autoCalibrate()
-
-            repo.getAllLogs().take(1).collect { logs ->
-                updateGeminiAnalysis(logs, newForecast)
-            }
         }
     }
-    
+
     fun dismissRetrainDialog() {
         _showRetrainDialog.value = false
     }
 
     private val _timeFilter = MutableStateFlow(DashboardTimeFilter.LAST_15_DAYS)
-    val timeFilter = _timeFilter.asStateFlow()
+    val timeFilter: StateFlow<DashboardTimeFilter> = _timeFilter
 
     fun setTimeFilter(filter: DashboardTimeFilter) {
         _timeFilter.value = filter
     }
 
-    private suspend fun estimateDailyAvg(fasting: Float): Float {
-        val noon = predictor.predict(fasting, 0)
-        val evening = predictor.predict(fasting, 1)
-        return if (noon > 0 && evening > 0) (fasting + noon + evening) / 3f else fasting
-    }
-
-    private suspend fun getSmartDailyAverages(entries: List<LogEntry>): Map<String, Float> {
-        val groupedByDate = entries.groupBy { it.date }.toSortedMap()
-        val result = mutableMapOf<String, Float>()
-        for ((date, dayEntries) in groupedByDate) {
-            val fastingEntry = dayEntries.find { it.session == "Sáng" && it.bgBefore != null }
-            val avg = if (fastingEntry != null) {
-                estimateDailyAvg(fastingEntry.bgBefore!!.toFloat())
-            } else {
-                val dayValues = dayEntries.flatMap { listOfNotNull(it.bgBefore, it.bgAfter) }
-                if (dayValues.isNotEmpty()) dayValues.average().toFloat() else 0f
-            }
-            if (avg > 0f) result[date] = avg
-        }
-        return result
-    }
-
-    private fun weightedAverage(glucoseList: List<Float>): Float {
-        if (glucoseList.isEmpty()) return 0f
-        val weights = glucoseList.mapIndexed { i, _ -> (i + 1).toFloat() }
-        val totalWeight = weights.sum()
-        val weightedSum = glucoseList.zip(weights).sumOf { (it.first * it.second).toDouble() }
-        return (weightedSum / totalWeight).toFloat()
-    }
-
-    private fun calculateHbA1c(weightedAvgGlucose: Float): Double {
-        return if (weightedAvgGlucose > 0) (weightedAvgGlucose + 2.59) / 1.59 else 0.0
-    }
-
-    private fun calculateMetrics(entries: List<LogEntry>, smartAverages: Map<String, Float>): Quad<Double, Double, Int, Double> {
-        val allRawValues = entries.flatMap { listOfNotNull(it.bgBefore, it.bgAfter) }
-        val max = allRawValues.maxOrNull() ?: 0.0
-        val simpleAvg = if (allRawValues.isNotEmpty()) allRawValues.average() else 0.0
-        val highRate = if (allRawValues.isNotEmpty()) (allRawValues.count { it > 10.0 } * 100 / allRawValues.size) else 0
-
-        val smartWeightedAvg = weightedAverage(smartAverages.values.toList())
-        val hba1c = calculateHbA1c(smartWeightedAvg)
-
-        return Quad(max, simpleAvg, highRate, hba1c)
-    }
-
-    private fun getComparison(current: Double, previous: Double): ComparisonData? {
-        if (previous <= 0.0) return null
-        val diff = current - previous
-        val percent = (diff / previous) * 100
-        return ComparisonData(
-            diff = diff,
-            percentChange = percent,
-            isBetter = diff <= 0 
-        )
-    }
-
-    @OptIn(ExperimentalCoroutinesApi::class)
     val uiState: StateFlow<DashboardUiState> = combine(
         repo.getAllLogs(),
         _timeFilter,
         _realtimePrediction,
         _multiStepForecast,
+        _forecastStatus,
         _geminiInsight
-    ) { allEntries, filter, realtime, multiStep, gemini ->
-        DashboardInput(allEntries, filter, realtime, multiStep, gemini)
-    }.flatMapLatest { input ->
-        flow {
-            val allEntries = input.allEntries
-            val filter = input.filter
-            val realtime = input.realtime
-            val multiStep = input.multiStep
-            val gemini = input.gemini
+    ) { allEntries, filter, realtime, multiStep, forecastStatus, gemini ->
+        DashboardInput(allEntries, filter, realtime, multiStep, forecastStatus, gemini)
+    }.map(::buildUiState)
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DashboardUiState())
 
-            val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-            val outputSdf = SimpleDateFormat("dd/MM", Locale.getDefault())
-            
-            val currentLimit = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -filter.days) }.time
-            val previousLimit = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -filter.days * 2) }.time
+    private fun buildUiState(input: DashboardInput): DashboardUiState {
+        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+        val outputSdf = SimpleDateFormat("dd/MM", Locale.getDefault())
+        val (currentEntries, previousEntries) = filterEntries(input.allEntries, input.filter, sdf)
+        val currentDailyAverages = dailyMeasuredAverages(currentEntries)
+        val previousDailyAverages = dailyMeasuredAverages(previousEntries)
+        val (max, avg, highRate, hba1c) = calculateMetrics(currentEntries, currentDailyAverages)
+        val (previousMax, previousAvg, previousHighRate, previousHba1c) = calculateMetrics(previousEntries, previousDailyAverages)
 
-            val currentEntries = allEntries.filter {
-                try {
-                    val d = sdf.parse(it.date)
-                    d != null && (d.after(currentLimit) || it.date == sdf.format(Date()))
-                } catch (e: Exception) { false }
-            }
+        return DashboardUiState(
+            entries = currentEntries,
+            max = max,
+            maxCompare = getComparison(max, previousMax),
+            avg = avg,
+            avgCompare = getComparison(avg, previousAvg),
+            highRate = highRate,
+            highRateCompare = getComparison(highRate.toDouble(), previousHighRate.toDouble()),
+            hba1c = hba1c,
+            hba1cCompare = getComparison(hba1c, previousHba1c),
+            currentPeriodPoints = chartPoints(currentDailyAverages, sdf, outputSdf),
+            previousPeriodPoints = chartPoints(previousDailyAverages, sdf, outputSdf),
+            insights = detectRisk.detect(currentEntries, currentDailyAverages.values.toList()),
+            currentFilter = input.filter,
+            realtimePrediction = input.realtime,
+            multiStepForecast = input.multiStep,
+            forecastStatus = input.forecastStatus,
+            geminiInsight = input.gemini
+        )
+    }
 
-            val previousEntries = if (filter == DashboardTimeFilter.ALL) emptyList() else allEntries.filter {
-                try {
-                    val d = sdf.parse(it.date)
-                    d != null && d.after(previousLimit) && (d.before(currentLimit) || it.date == sdf.format(currentLimit))
-                } catch (e: Exception) { false }
-            }
+    private fun filterEntries(
+        allEntries: List<LogEntry>,
+        filter: DashboardTimeFilter,
+        sdf: SimpleDateFormat
+    ): Pair<List<LogEntry>, List<LogEntry>> {
+        if (filter == DashboardTimeFilter.ALL) return allEntries to emptyList()
 
-            val currentSmartAvgs = getSmartDailyAverages(currentEntries)
-            val prevSmartAvgs = getSmartDailyAverages(previousEntries)
-
-            val (max, avg, highRate, hba1c) = calculateMetrics(currentEntries, currentSmartAvgs)
-            val (pMax, pAvg, pHighRate, pHba1c) = calculateMetrics(previousEntries, prevSmartAvgs)
-
-            val currentPoints = currentSmartAvgs.toList().mapIndexed { index, pair -> 
-                val dateLabel = try {
-                    val d = sdf.parse(pair.first)
-                    if (d != null) outputSdf.format(d) else pair.first
-                } catch (e: Exception) { pair.first }
-                ChartPointPro(index, pair.second.toDouble(), dateLabel)
-            }
-
-            val prevPoints = prevSmartAvgs.toList().mapIndexed { index, pair -> 
-                val dateLabel = try {
-                    val d = sdf.parse(pair.first)
-                    if (d != null) outputSdf.format(d) else pair.first
-                } catch (e: Exception) { pair.first }
-                ChartPointPro(index, pair.second.toDouble(), dateLabel)
-            }
-
-            emit(DashboardUiState(
-                entries = currentEntries,
-                max = max,
-                maxCompare = getComparison(max, pMax),
-                avg = avg,
-                avgCompare = getComparison(avg, pAvg),
-                highRate = highRate,
-                highRateCompare = getComparison(highRate.toDouble(), pHighRate.toDouble()),
-                hba1c = hba1c,
-                hba1cCompare = getComparison(hba1c, pHba1c),
-                currentPeriodPoints = currentPoints,
-                previousPeriodPoints = prevPoints,
-                insights = detectRisk.detect(currentEntries, currentSmartAvgs.values.toList()),
-                currentFilter = filter,
-                realtimePrediction = realtime,
-                multiStepForecast = multiStep,
-                geminiInsight = gemini
-            ))
+        val currentLimit = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -filter.days) }.time
+        val previousLimit = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -filter.days * 2) }.time
+        val current = allEntries.filter { entry ->
+            runCatching { sdf.parse(entry.date) }
+                .getOrNull()
+                ?.let { !it.before(currentLimit) } == true
         }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), DashboardUiState())
+        val previous = allEntries.filter { entry ->
+            runCatching { sdf.parse(entry.date) }
+                .getOrNull()
+                ?.let { !it.before(previousLimit) && it.before(currentLimit) } == true
+        }
+        return current to previous
+    }
+
+    private fun dailyMeasuredAverages(entries: List<LogEntry>): Map<String, Float> =
+        entries.groupBy { it.date }
+            .toSortedMap()
+            .mapValues { (_, dayEntries) ->
+                dayEntries.flatMap { listOfNotNull(it.bgBefore, it.bgAfter) }
+                    .filter { it.isFinite() && it in Normalizer.MIN_GLUCOSE_MMOL.toDouble()..Normalizer.MAX_GLUCOSE_MMOL.toDouble() }
+                    .average()
+                    .toFloat()
+            }
+            .filterValues { it.isFinite() && it > 0f }
+
+    private fun chartPoints(
+        dailyAverages: Map<String, Float>,
+        inputSdf: SimpleDateFormat,
+        outputSdf: SimpleDateFormat
+    ): List<ChartPointPro> = dailyAverages.entries.mapIndexed { index, (date, value) ->
+        val label = runCatching { inputSdf.parse(date)?.let(outputSdf::format) ?: date }.getOrDefault(date)
+        ChartPointPro(index, value.toDouble(), label)
+    }
+
+    private fun calculateMetrics(
+        entries: List<LogEntry>,
+        dailyAverages: Map<String, Float>
+    ): Quad<Double, Double, Int, Double> {
+        val values = entries.flatMap { listOfNotNull(it.bgBefore, it.bgAfter) }
+            .filter { it.isFinite() && it in Normalizer.MIN_GLUCOSE_MMOL.toDouble()..Normalizer.MAX_GLUCOSE_MMOL.toDouble() }
+        val max = values.maxOrNull() ?: 0.0
+        val average = values.average().takeIf { it.isFinite() } ?: 0.0
+        val highRate = if (values.isEmpty()) 0 else values.count { it > 10.0 } * 100 / values.size
+        val weightedAverage = weightedAverage(dailyAverages.values.toList())
+        val hba1c = if (weightedAverage > 0f) (weightedAverage + 2.59) / 1.59 else 0.0
+        return Quad(max, average, highRate, hba1c)
+    }
+
+    private fun weightedAverage(values: List<Float>): Float {
+        if (values.isEmpty()) return 0f
+        val weights = values.indices.map { (it + 1).toFloat() }
+        return (values.zip(weights).sumOf { (value, weight) -> (value * weight).toDouble() } / weights.sum()).toFloat()
+    }
+
+    private fun getComparison(current: Double, previous: Double): ComparisonData? {
+        if (previous <= 0.0) return null
+        val diff = current - previous
+        return ComparisonData(diff, diff / previous * 100, diff <= 0)
+    }
+
+    private fun validMeasurementsInChronologicalOrder(entries: List<LogEntry>): List<Float> =
+        entries.asSequence()
+            .filter { it.session != "AI Prediction" }
+            .sortedWith(compareBy<LogEntry> { it.date }.thenBy { it.time ?: "" })
+            .mapNotNull { entry -> entry.bgBefore?.toFloat()?.takeIf(Normalizer::isValidGlucose) }
+            .toList()
+
+    private data class DashboardInput(
+        val allEntries: List<LogEntry>,
+        val filter: DashboardTimeFilter,
+        val realtime: PredictionResult?,
+        val multiStep: MultiStepResult?,
+        val forecastStatus: String?,
+        val gemini: GeminiInsightUiState
+    )
+
+    private data class Quad<out A, out B, out C, out D>(
+        val first: A,
+        val second: B,
+        val third: C,
+        val fourth: D
+    )
+
+    private companion object {
+        const val MAX_CLOUD_HISTORY_ROWS = 20
+    }
 }
-
-data class DashboardInput(
-    val allEntries: List<LogEntry>,
-    val filter: DashboardTimeFilter,
-    val realtime: PredictionResult?,
-    val multiStep: MultiStepResult?,
-    val gemini: String?
-)
-
-data class Quad<out A, out B, out C, out D>(
-    val first: A,
-    val second: B,
-    val third: C,
-    val fourth: D
-)
