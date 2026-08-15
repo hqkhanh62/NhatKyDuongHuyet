@@ -145,7 +145,12 @@ private fun PredictionResultCard(value: Float) {
             )
             Spacer(Modifier.height(8.dp))
             Surface(color = getRiskColor(value), shape = RoundedCornerShape(12.dp)) {
-                Text(getInsight(value), Modifier.padding(horizontal = 16.dp, vertical = 6.dp), Color.White, FontWeight.Bold)
+                Text(
+                    text = getInsight(value),
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
     }

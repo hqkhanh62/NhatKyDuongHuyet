@@ -180,8 +180,15 @@ class DashboardViewModel @Inject constructor(
         _multiStepForecast,
         _forecastStatus,
         _geminiInsight
-    ) { allEntries, filter, realtime, multiStep, forecastStatus, gemini ->
-        DashboardInput(allEntries, filter, realtime, multiStep, forecastStatus, gemini)
+    ) { args: Array<Any?> ->
+        DashboardInput(
+            allEntries = args[0] as List<LogEntry>,
+            filter = args[1] as DashboardTimeFilter,
+            realtime = args[2] as PredictionResult?,
+            multiStep = args[3] as MultiStepResult?,
+            forecastStatus = args[4] as String?,
+            gemini = args[5] as GeminiInsightUiState
+        )
     }.map(::buildUiState)
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DashboardUiState())

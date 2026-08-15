@@ -417,25 +417,25 @@ public final class DaggerNhatKyDuongHuyetApplication_HiltComponents_SingletonC {
 
     @IdentifierNameString
     private static final class LazyClassKeyProvider {
-      static String com_example_nhatkyduonghuyet_viewmodel_DetailViewModel = "com.example.nhatkyduonghuyet.viewmodel.DetailViewModel";
-
-      static String com_example_nhatkyduonghuyet_viewmodel_LogEntryViewModel = "com.example.nhatkyduonghuyet.viewmodel.LogEntryViewModel";
-
       static String com_example_nhatkyduonghuyet_ui_dashboard_DashboardViewModel = "com.example.nhatkyduonghuyet.ui.dashboard.DashboardViewModel";
+
+      static String com_example_nhatkyduonghuyet_viewmodel_DetailViewModel = "com.example.nhatkyduonghuyet.viewmodel.DetailViewModel";
 
       static String com_example_nhatkyduonghuyet_viewmodel_StatsViewModel = "com.example.nhatkyduonghuyet.viewmodel.StatsViewModel";
 
-      @KeepFieldType
-      DetailViewModel com_example_nhatkyduonghuyet_viewmodel_DetailViewModel2;
-
-      @KeepFieldType
-      LogEntryViewModel com_example_nhatkyduonghuyet_viewmodel_LogEntryViewModel2;
+      static String com_example_nhatkyduonghuyet_viewmodel_LogEntryViewModel = "com.example.nhatkyduonghuyet.viewmodel.LogEntryViewModel";
 
       @KeepFieldType
       DashboardViewModel com_example_nhatkyduonghuyet_ui_dashboard_DashboardViewModel2;
 
       @KeepFieldType
+      DetailViewModel com_example_nhatkyduonghuyet_viewmodel_DetailViewModel2;
+
+      @KeepFieldType
       StatsViewModel com_example_nhatkyduonghuyet_viewmodel_StatsViewModel2;
+
+      @KeepFieldType
+      LogEntryViewModel com_example_nhatkyduonghuyet_viewmodel_LogEntryViewModel2;
     }
   }
 
@@ -485,25 +485,25 @@ public final class DaggerNhatKyDuongHuyetApplication_HiltComponents_SingletonC {
 
     @IdentifierNameString
     private static final class LazyClassKeyProvider {
-      static String com_example_nhatkyduonghuyet_viewmodel_DetailViewModel = "com.example.nhatkyduonghuyet.viewmodel.DetailViewModel";
-
-      static String com_example_nhatkyduonghuyet_ui_dashboard_DashboardViewModel = "com.example.nhatkyduonghuyet.ui.dashboard.DashboardViewModel";
+      static String com_example_nhatkyduonghuyet_viewmodel_LogEntryViewModel = "com.example.nhatkyduonghuyet.viewmodel.LogEntryViewModel";
 
       static String com_example_nhatkyduonghuyet_viewmodel_StatsViewModel = "com.example.nhatkyduonghuyet.viewmodel.StatsViewModel";
 
-      static String com_example_nhatkyduonghuyet_viewmodel_LogEntryViewModel = "com.example.nhatkyduonghuyet.viewmodel.LogEntryViewModel";
+      static String com_example_nhatkyduonghuyet_ui_dashboard_DashboardViewModel = "com.example.nhatkyduonghuyet.ui.dashboard.DashboardViewModel";
+
+      static String com_example_nhatkyduonghuyet_viewmodel_DetailViewModel = "com.example.nhatkyduonghuyet.viewmodel.DetailViewModel";
 
       @KeepFieldType
-      DetailViewModel com_example_nhatkyduonghuyet_viewmodel_DetailViewModel2;
-
-      @KeepFieldType
-      DashboardViewModel com_example_nhatkyduonghuyet_ui_dashboard_DashboardViewModel2;
+      LogEntryViewModel com_example_nhatkyduonghuyet_viewmodel_LogEntryViewModel2;
 
       @KeepFieldType
       StatsViewModel com_example_nhatkyduonghuyet_viewmodel_StatsViewModel2;
 
       @KeepFieldType
-      LogEntryViewModel com_example_nhatkyduonghuyet_viewmodel_LogEntryViewModel2;
+      DashboardViewModel com_example_nhatkyduonghuyet_ui_dashboard_DashboardViewModel2;
+
+      @KeepFieldType
+      DetailViewModel com_example_nhatkyduonghuyet_viewmodel_DetailViewModel2;
     }
 
     private static final class SwitchingProvider<T> implements Provider<T> {
@@ -528,7 +528,7 @@ public final class DaggerNhatKyDuongHuyetApplication_HiltComponents_SingletonC {
       public T get() {
         switch (id) {
           case 0: // com.example.nhatkyduonghuyet.ui.dashboard.DashboardViewModel 
-          return (T) new DashboardViewModel(singletonCImpl.bindLogRepositoryProvider.get(), singletonCImpl.glucosePredictorProvider.get(), singletonCImpl.provideRealtimePredictorProvider.get(), new DetectRiskPattern(), singletonCImpl.aIRepositoryProvider.get(), new GeminiAnalysisUseCase());
+          return (T) new DashboardViewModel(singletonCImpl.bindLogRepositoryProvider.get(), singletonCImpl.provideRealtimePredictorProvider.get(), new DetectRiskPattern(), singletonCImpl.aIRepositoryProvider.get(), new GeminiAnalysisUseCase());
 
           case 1: // com.example.nhatkyduonghuyet.viewmodel.DetailViewModel 
           return (T) new DetailViewModel(singletonCImpl.bindLogRepositoryProvider.get());
@@ -710,7 +710,7 @@ public final class DaggerNhatKyDuongHuyetApplication_HiltComponents_SingletonC {
           return (T) AIModule_ProvideLSTMEngineFactory.provideLSTMEngine(ApplicationContextModule_ProvideContextFactory.provideContext(singletonCImpl.applicationContextModule));
 
           case 6: // com.example.nhatkyduonghuyet.data.repository.AIRepository 
-          return (T) new AIRepository(ApplicationContextModule_ProvideContextFactory.provideContext(singletonCImpl.applicationContextModule), singletonCImpl.logEntryDao());
+          return (T) new AIRepository(ApplicationContextModule_ProvideContextFactory.provideContext(singletonCImpl.applicationContextModule), singletonCImpl.logEntryDao(), singletonCImpl.provideLSTMEngineProvider.get());
 
           default: throw new AssertionError(id);
         }

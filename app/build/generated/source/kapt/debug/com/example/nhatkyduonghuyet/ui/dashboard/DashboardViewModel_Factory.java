@@ -5,7 +5,6 @@ import com.example.nhatkyduonghuyet.data.repository.AIRepository;
 import com.example.nhatkyduonghuyet.domain.repository.LogRepository;
 import com.example.nhatkyduonghuyet.domain.usecase.DetectRiskPattern;
 import com.example.nhatkyduonghuyet.domain.usecase.GeminiAnalysisUseCase;
-import com.example.nhatkyduonghuyet.ml.GlucosePredictor;
 import dagger.internal.DaggerGenerated;
 import dagger.internal.Factory;
 import dagger.internal.QualifierMetadata;
@@ -30,8 +29,6 @@ import javax.inject.Provider;
 public final class DashboardViewModel_Factory implements Factory<DashboardViewModel> {
   private final Provider<LogRepository> repoProvider;
 
-  private final Provider<GlucosePredictor> predictorProvider;
-
   private final Provider<RealtimePredictor> realtimePredictorProvider;
 
   private final Provider<DetectRiskPattern> detectRiskProvider;
@@ -41,12 +38,10 @@ public final class DashboardViewModel_Factory implements Factory<DashboardViewMo
   private final Provider<GeminiAnalysisUseCase> geminiUseCaseProvider;
 
   public DashboardViewModel_Factory(Provider<LogRepository> repoProvider,
-      Provider<GlucosePredictor> predictorProvider,
       Provider<RealtimePredictor> realtimePredictorProvider,
       Provider<DetectRiskPattern> detectRiskProvider, Provider<AIRepository> aiRepoProvider,
       Provider<GeminiAnalysisUseCase> geminiUseCaseProvider) {
     this.repoProvider = repoProvider;
-    this.predictorProvider = predictorProvider;
     this.realtimePredictorProvider = realtimePredictorProvider;
     this.detectRiskProvider = detectRiskProvider;
     this.aiRepoProvider = aiRepoProvider;
@@ -55,20 +50,19 @@ public final class DashboardViewModel_Factory implements Factory<DashboardViewMo
 
   @Override
   public DashboardViewModel get() {
-    return newInstance(repoProvider.get(), predictorProvider.get(), realtimePredictorProvider.get(), detectRiskProvider.get(), aiRepoProvider.get(), geminiUseCaseProvider.get());
+    return newInstance(repoProvider.get(), realtimePredictorProvider.get(), detectRiskProvider.get(), aiRepoProvider.get(), geminiUseCaseProvider.get());
   }
 
   public static DashboardViewModel_Factory create(Provider<LogRepository> repoProvider,
-      Provider<GlucosePredictor> predictorProvider,
       Provider<RealtimePredictor> realtimePredictorProvider,
       Provider<DetectRiskPattern> detectRiskProvider, Provider<AIRepository> aiRepoProvider,
       Provider<GeminiAnalysisUseCase> geminiUseCaseProvider) {
-    return new DashboardViewModel_Factory(repoProvider, predictorProvider, realtimePredictorProvider, detectRiskProvider, aiRepoProvider, geminiUseCaseProvider);
+    return new DashboardViewModel_Factory(repoProvider, realtimePredictorProvider, detectRiskProvider, aiRepoProvider, geminiUseCaseProvider);
   }
 
-  public static DashboardViewModel newInstance(LogRepository repo, GlucosePredictor predictor,
+  public static DashboardViewModel newInstance(LogRepository repo,
       RealtimePredictor realtimePredictor, DetectRiskPattern detectRisk, AIRepository aiRepo,
       GeminiAnalysisUseCase geminiUseCase) {
-    return new DashboardViewModel(repo, predictor, realtimePredictor, detectRisk, aiRepo, geminiUseCase);
+    return new DashboardViewModel(repo, realtimePredictor, detectRisk, aiRepo, geminiUseCase);
   }
 }

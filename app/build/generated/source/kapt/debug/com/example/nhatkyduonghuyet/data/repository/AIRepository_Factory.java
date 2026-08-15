@@ -1,6 +1,7 @@
 package com.example.nhatkyduonghuyet.data.repository;
 
 import android.content.Context;
+import com.example.nhatkyduonghuyet.ai.LSTMEngine;
 import com.example.nhatkyduonghuyet.data.local.dao.LogEntryDao;
 import dagger.internal.DaggerGenerated;
 import dagger.internal.Factory;
@@ -28,23 +29,26 @@ public final class AIRepository_Factory implements Factory<AIRepository> {
 
   private final Provider<LogEntryDao> daoProvider;
 
-  public AIRepository_Factory(Provider<Context> contextProvider,
-      Provider<LogEntryDao> daoProvider) {
+  private final Provider<LSTMEngine> modelProvider;
+
+  public AIRepository_Factory(Provider<Context> contextProvider, Provider<LogEntryDao> daoProvider,
+      Provider<LSTMEngine> modelProvider) {
     this.contextProvider = contextProvider;
     this.daoProvider = daoProvider;
+    this.modelProvider = modelProvider;
   }
 
   @Override
   public AIRepository get() {
-    return newInstance(contextProvider.get(), daoProvider.get());
+    return newInstance(contextProvider.get(), daoProvider.get(), modelProvider.get());
   }
 
   public static AIRepository_Factory create(Provider<Context> contextProvider,
-      Provider<LogEntryDao> daoProvider) {
-    return new AIRepository_Factory(contextProvider, daoProvider);
+      Provider<LogEntryDao> daoProvider, Provider<LSTMEngine> modelProvider) {
+    return new AIRepository_Factory(contextProvider, daoProvider, modelProvider);
   }
 
-  public static AIRepository newInstance(Context context, LogEntryDao dao) {
-    return new AIRepository(context, dao);
+  public static AIRepository newInstance(Context context, LogEntryDao dao, LSTMEngine model) {
+    return new AIRepository(context, dao, model);
   }
 }

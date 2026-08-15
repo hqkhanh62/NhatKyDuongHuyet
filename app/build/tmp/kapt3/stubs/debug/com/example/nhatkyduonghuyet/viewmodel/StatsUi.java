@@ -1,7 +1,7 @@
 package com.example.nhatkyduonghuyet.viewmodel;
 
 import androidx.lifecycle.ViewModel;
-import com.example.nhatkyduonghuyet.ai.PredictionResult;
+import com.example.nhatkyduonghuyet.ai.PredictionOutcome;
 import com.example.nhatkyduonghuyet.data.repository.AIRepository;
 import com.example.nhatkyduonghuyet.domain.repository.LogRepository;
 import com.example.nhatkyduonghuyet.data.local.entity.LogEntry;
