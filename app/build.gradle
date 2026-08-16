@@ -13,10 +13,13 @@ kapt {
     }
 }
 
-def geminiApiKey = providers.gradleProperty("geminiApiKey")
-    .orElse(providers.environmentVariable("GEMINI_API_KEY"))
-    .orElse("YOUR_GEMINI_API_KEY_HERE")
-    .get()
+Properties localProperties = new Properties()
+def localPropertiesFile = rootProject.file('local.properties')
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.withInputStream { localProperties.load(it) }
+}
+
+def geminiApiKey = localProperties.getProperty("GEMINI_API_KEY") ?: System.getenv("GEMINI_API_KEY") ?: "YOUR_GEMINI_API_KEY_HERE"
 
 android {
     namespace 'com.example.nhatkyduonghuyet'
