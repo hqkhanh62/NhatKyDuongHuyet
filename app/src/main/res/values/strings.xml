@@ -1,3 +1,41 @@
 <resources>
-    <string name="app_name">Nhat ky Duong huyet &amp; Insulin</string>
+    <string name="app_name">Nhật ký Đường huyết &amp; Insulin</string>
+
+    <!-- Dashboard -->
+    <string name="dashboard_title">Dashboard Sức Khỏe Pro</string>
+    <string name="scan">Quét</string>
+    <string name="predict">Dự đoán</string>
+    <string name="list">Danh sách</string>
+    <string name="viewing_period">Đang xem: %1$s</string>
+    <string name="time_filter">Lọc thời gian</string>
+    <string name="ai_analysis_server">Phân tích AI từ máy chủ</string>
+    <string name="analyze_my_data">Phân tích dữ liệu của tôi</string>
+    <string name="sending_request">Đang gửi yêu cầu phân tích an toàn…</string>
+    <string name="refresh_analysis">Làm mới phân tích</string>
+    <string name="try_again">Thử lại</string>
+    <string name="smart_analysis">Phân tích thông minh</string>
+    <string name="ai_upgrade_title">Nâng cấp trí tuệ AI</string>
+    <string name="ai_upgrade_msg">Bạn đã có thêm 50 dữ liệu mới. Hệ thống đã sẵn sàng để huấn luyện lại mô hình để dự báo chính xác hơn cho riêng bạn.</string>
+    <string name="great">Tuyệt vời</string>
+    <string name="export_report">Xuất báo cáo PDF</string>
+    <string name="idle_gemini_msg">Nhật ký đường huyết chỉ được gửi đi sau khi bạn chọn phân tích.</string>
+
+    <!-- Prediction -->
+    <string name="prediction_title">Dự đoán Glucose AI</string>
+    <string name="back">Quay lại</string>
+    <string name="invalid_number_error">Nhập một số hợp lệ, ví dụ 5.6.</string>
+    <string name="analyzing">Đ đang phân tích&#8230;</string>
+    <string name="predict_now">DỰ ĐOÁN NGAY</string>
+    <string name="ai_is_analyzing">AI đang phân tích&#8230;</string>
+    <string name="input_instruction">Nhập chỉ số để AI bắt đầu dự đoán</string>
+    <string name="input_parameters">Thông số đầu vào</string>
+    <string name="fasting_label">Đường huyết lúc đói (2.0&#8211;25.0 mmol/L)</string>
+    <string name="prediction_time">Thời điểm dự đoán:</string>
+    <string name="after_lunch">Sau ăn trưa</string>
+    <string name="after_dinner">Sau ăn chiều</string>
+    <string name="prediction_result">KẾT QUẢ DỰ ĐOÁN</string>
+    <string name="status_stable">Ổn định</string>
+    <string name="status_monitor">Cần theo dõi</string>
+    <string name="status_high_risk">Nguy cơ cao</string>
+    <string name="status_danger">CẢNH BÁO NGUY HIỂM</string>
 </resources>

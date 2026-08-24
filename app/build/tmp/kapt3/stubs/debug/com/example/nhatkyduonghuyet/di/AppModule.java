@@ -2,10 +2,8 @@ package com.example.nhatkyduonghuyet.di;
 
 import android.content.Context;
 import androidx.room.Room;
-import com.example.nhatkyduonghuyet.data.local.dao.LogEntryDao;
 import com.example.nhatkyduonghuyet.data.local.AppDatabase;
-import com.example.nhatkyduonghuyet.data.repository.LogRepositoryImpl;
-import com.example.nhatkyduonghuyet.domain.repository.LogRepository;
+import com.example.nhatkyduonghuyet.data.local.dao.LogEntryDao;
 import dagger.Module;
 import dagger.Provides;
 import dagger.hilt.InstallIn;

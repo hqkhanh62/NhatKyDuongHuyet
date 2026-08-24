@@ -3,7 +3,6 @@ package com.example.nhatkyduonghuyet.ui.prediction;
 import androidx.compose.foundation.layout.Arrangement;
 import androidx.compose.foundation.text.KeyboardOptions;
 import androidx.compose.material.icons.Icons;
-import androidx.compose.material3.ButtonDefaults;
 import androidx.compose.material3.CardDefaults;
 import androidx.compose.material3.ExperimentalMaterial3Api;
 import androidx.compose.runtime.Composable;

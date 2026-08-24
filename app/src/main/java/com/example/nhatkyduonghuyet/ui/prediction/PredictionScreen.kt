@@ -13,7 +13,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -27,10 +27,11 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,7 +42,13 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.example.nhatkyduonghuyet.ai.PredictionOutcome
 import com.example.nhatkyduonghuyet.ml.GlucosePredictor
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.util.Locale
+
+import androidx.compose.ui.res.stringResource
+import com.example.nhatkyduonghuyet.R
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -50,43 +57,95 @@ fun PredictionScreen(
     predictor: GlucosePredictor
 ) {
     var fasting by remember { mutableStateOf("") }
-    var type by remember { mutableStateOf(0) }
+    var type by remember { mutableIntStateOf(0) }
     var outcome by remember { mutableStateOf<PredictionOutcome<Float>?>(null) }
+    var isLoading by remember { mutableStateOf(false) }
 
-    LaunchedEffect(fasting, type) {
+    val scope = rememberCoroutineScope()
+    var debounceJob by remember { mutableStateOf<Job?>(null) }
+    
+    val invalidNumberMsg = stringResource(R.string.invalid_number_error)
+
+    fun performPrediction() {
+        debounceJob?.cancel()
         val value = fasting.replace(',', '.').toFloatOrNull()
-        outcome = when {
-            fasting.isBlank() -> null
-            value == null -> PredictionOutcome.Failure("Nhập một số hợp lệ, ví dụ 5.6.")
-            else -> predictor.predict(value, type)
+
+        if (value == null) {
+            outcome = if (fasting.isBlank()) null
+            else PredictionOutcome.Failure(invalidNumberMsg)
+            return
+        }
+
+        debounceJob = scope.launch {
+            isLoading = true
+            delay(500)
+            outcome = predictor.predict(value, type)
+            isLoading = false
         }
     }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Dự đoán Glucose AI") },
+                title = { Text(stringResource(R.string.prediction_title)) },
                 navigationIcon = {
                     IconButton(onClick = navController::popBackStack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Quay lại")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.back))
                     }
                 }
             )
         }
     ) { padding ->
         Column(
-            modifier = Modifier.padding(padding).fillMaxSize().padding(16.dp),
+            modifier = Modifier
+                .padding(padding)
+                .fillMaxSize()
+                .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            PredictionInputCard(fasting, { fasting = it }, type, { type = it })
+            PredictionInputCard(
+                fasting = fasting,
+                onFastingChange = {
+                    fasting = it
+                    performPrediction()
+                },
+                type = type,
+                onTypeChange = {
+                    type = it
+                    performPrediction()
+                }
+            )
             Spacer(Modifier.height(24.dp))
 
-            when (val result = outcome) {
-                null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("Nhập chỉ số để AI bắt đầu dự đoán", color = Color.Gray)
+            Button(
+                onClick = { performPrediction() },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !isLoading && fasting.isNotBlank()
+            ) {
+                Text(if (isLoading) stringResource(R.string.analyzing) else stringResource(R.string.predict_now))
+            }
+
+            Spacer(Modifier.height(16.dp))
+
+            when {
+                isLoading -> Box(
+                    Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(stringResource(R.string.ai_is_analyzing), color = Color.Gray)
                 }
-                is PredictionOutcome.Success -> PredictionResultCard(result.value)
-                is PredictionOutcome.Failure -> PredictionErrorCard(result.reason)
+                outcome == null -> Box(
+                    Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(stringResource(R.string.input_instruction), color = Color.Gray)
+                }
+                outcome is PredictionOutcome.Success -> PredictionResultCard(
+                    (outcome as PredictionOutcome.Success).value
+                )
+                outcome is PredictionOutcome.Failure -> PredictionErrorCard(
+                    (outcome as PredictionOutcome.Failure).reason
+                )
             }
         }
     }
@@ -102,26 +161,45 @@ private fun PredictionInputCard(
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        )
     ) {
         Column(Modifier.padding(20.dp)) {
-            Text("Thông số đầu vào", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(
+                stringResource(R.string.input_parameters),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
             Spacer(Modifier.height(16.dp))
             OutlinedTextField(
                 value = fasting,
                 onValueChange = onFastingChange,
-                label = { Text("Đường huyết lúc đói (2.0–25.0 mmol/L)") },
+                label = { Text(stringResource(R.string.fasting_label)) },
                 modifier = Modifier.fillMaxWidth(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 singleLine = true,
                 shape = RoundedCornerShape(12.dp)
             )
             Spacer(Modifier.height(20.dp))
-            Text("Thời điểm dự đoán:", style = MaterialTheme.typography.labelMedium)
+            Text(stringResource(R.string.prediction_time), style = MaterialTheme.typography.labelMedium)
             Spacer(Modifier.height(8.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                FilterChip(type == 0, { onTypeChange(0) }, { Text("Sau ăn trưa") }, Modifier.weight(1f))
-                FilterChip(type == 1, { onTypeChange(1) }, { Text("Sau ăn chiều") }, Modifier.weight(1f))
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                FilterChip(
+                    selected = type == 0,
+                    onClick = { onTypeChange(0) },
+                    label = { Text(stringResource(R.string.after_lunch)) },
+                    modifier = Modifier.weight(1f)
+                )
+                FilterChip(
+                    selected = type == 1,
+                    onClick = { onTypeChange(1) },
+                    label = { Text(stringResource(R.string.after_dinner)) },
+                    modifier = Modifier.weight(1f)
+                )
             }
         }
     }
@@ -132,10 +210,19 @@ private fun PredictionResultCard(value: Float) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = getRiskColor(value).copy(alpha = 0.1f))
+        colors = CardDefaults.cardColors(
+            containerColor = getRiskColor(value).copy(alpha = 0.1f)
+        )
     ) {
-        Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("KẾT QUẢ DỰ ĐOÁN", style = MaterialTheme.typography.labelLarge, color = Color.Gray)
+        Column(
+            Modifier.padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                stringResource(R.string.prediction_result),
+                style = MaterialTheme.typography.labelLarge,
+                color = Color.Gray
+            )
             Spacer(Modifier.height(8.dp))
             Text(
                 text = String.format(Locale.getDefault(), "%.1f mmol/L", value),
@@ -144,7 +231,10 @@ private fun PredictionResultCard(value: Float) {
                 fontWeight = FontWeight.Black
             )
             Spacer(Modifier.height(8.dp))
-            Surface(color = getRiskColor(value), shape = RoundedCornerShape(12.dp)) {
+            Surface(
+                color = getRiskColor(value),
+                shape = RoundedCornerShape(12.dp)
+            ) {
                 Text(
                     text = getInsight(value),
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
@@ -164,7 +254,11 @@ private fun PredictionErrorCard(message: String) {
         contentColor = MaterialTheme.colorScheme.onErrorContainer,
         shape = RoundedCornerShape(16.dp)
     ) {
-        Text(message, Modifier.padding(16.dp), style = MaterialTheme.typography.bodyMedium)
+        Text(
+            message,
+            Modifier.padding(16.dp),
+            style = MaterialTheme.typography.bodyMedium
+        )
     }
 }
 
@@ -175,9 +269,10 @@ fun getRiskColor(value: Float): Color = when {
     else -> Color(0xFFB71C1C)
 }
 
+@Composable
 fun getInsight(value: Float): String = when {
-    value < 7.0f -> "Ổn định 👍"
-    value < 10.0f -> "Cần theo dõi"
-    value < 13.0f -> "Nguy cơ cao"
-    else -> "CẢNH BÁO NGUY HIỂM"
+    value < 7.0f -> stringResource(R.string.status_stable)
+    value < 10.0f -> stringResource(R.string.status_monitor)
+    value < 13.0f -> stringResource(R.string.status_high_risk)
+    else -> stringResource(R.string.status_danger)
 }

@@ -17,7 +17,9 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DateRange
-import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.ui.res.stringResource
+import com.example.nhatkyduonghuyet.R
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -69,6 +71,7 @@ fun DashboardScreenPro(
 ) {
     val state by viewModel.uiState.collectAsState()
     val showRetrain by viewModel.showRetrainDialog.collectAsState()
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     DashboardScreenProContent(
         state = state,
@@ -78,7 +81,8 @@ fun DashboardScreenPro(
         onRequestCloudInsight = viewModel::requestGeminiAnalysis,
         onViewDetails = onViewDetails,
         onNavigateToPrediction = onNavigateToPrediction,
-        onNavigateToScanner = onNavigateToScanner
+        onNavigateToScanner = onNavigateToScanner,
+        onExportPdf = { viewModel.exportToPdf(context) }
     )
 }
 
@@ -92,7 +96,8 @@ fun DashboardScreenProContent(
     onRequestCloudInsight: () -> Unit,
     onViewDetails: () -> Unit,
     onNavigateToPrediction: () -> Unit,
-    onNavigateToScanner: () -> Unit
+    onNavigateToScanner: () -> Unit,
+    onExportPdf: () -> Unit = {}
 ) {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     var showFilterMenu by remember { mutableStateOf(false) }
@@ -100,9 +105,9 @@ fun DashboardScreenProContent(
     if (showRetrain) {
         AlertDialog(
             onDismissRequest = onDismissRetrain,
-            title = { Text("AI Intelligence Upgrade") },
-            text = { Text("Bạn đã có thêm 50 dữ liệu mới. Hệ thống đã sẵn sàng để huấn luyện lại mô hình để dự báo chính xác hơn cho riêng bạn.") },
-            confirmButton = { Button(onClick = onDismissRetrain) { Text("Tuyệt vời") } }
+            title = { Text(stringResource(R.string.ai_upgrade_title)) },
+            text = { Text(stringResource(R.string.ai_upgrade_msg)) },
+            confirmButton = { Button(onClick = onDismissRetrain) { Text(stringResource(R.string.great)) } }
         )
     }
 
@@ -110,7 +115,7 @@ fun DashboardScreenProContent(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             LargeTopAppBar(
-                title = { Text("Dashboard Sức Khỏe Pro", fontWeight = FontWeight.Bold) },
+                title = { Text(stringResource(R.string.dashboard_title), fontWeight = FontWeight.Bold) },
                 actions = {
                     FilterMenu(
                         currentFilter = state.currentFilter,
@@ -118,14 +123,17 @@ fun DashboardScreenProContent(
                         onExpandedChange = { showFilterMenu = it },
                         onTimeFilterSelected = onTimeFilterSelected
                     )
+                    IconButton(onClick = onExportPdf) {
+                        Icon(Icons.Default.PictureAsPdf, stringResource(R.string.export_report), tint = MaterialTheme.colorScheme.primary)
+                    }
                     IconButton(onClick = onNavigateToScanner) {
-                        Icon(Icons.Default.PhotoCamera, "Quét", tint = MaterialTheme.colorScheme.primary)
+                        Icon(Icons.Default.PhotoCamera, stringResource(R.string.scan), tint = MaterialTheme.colorScheme.primary)
                     }
                     IconButton(onClick = onNavigateToPrediction) {
-                        Icon(Icons.Default.Favorite, "Dự đoán", tint = MaterialTheme.colorScheme.primary)
+                        Icon(Icons.Default.Favorite, stringResource(R.string.predict), tint = MaterialTheme.colorScheme.primary)
                     }
                     IconButton(onClick = onViewDetails) {
-                        Icon(Icons.AutoMirrored.Filled.List, "Danh sách")
+                        Icon(Icons.AutoMirrored.Filled.List, stringResource(R.string.list))
                     }
                 },
                 scrollBehavior = scrollBehavior
@@ -142,7 +150,7 @@ fun DashboardScreenProContent(
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Text(
-                        text = "Đang xem: ${state.currentFilter.label}",
+                        text = stringResource(R.string.viewing_period, state.currentFilter.label),
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onPrimaryContainer
@@ -158,7 +166,7 @@ fun DashboardScreenProContent(
             item { GeminiInsightCard(state.geminiInsight, onRequestCloudInsight) }
             item { RiskSummaryCard(state) }
             item {
-                Text("Phân tích thông minh", style = MaterialTheme.typography.titleMedium)
+                Text(stringResource(R.string.smart_analysis), style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(8.dp))
                 InsightList(state.insights)
             }
@@ -176,7 +184,7 @@ private fun FilterMenu(
 ) {
     androidx.compose.foundation.layout.Box {
         IconButton(onClick = { onExpandedChange(true) }) {
-            Icon(Icons.Default.DateRange, "Lọc thời gian")
+            Icon(Icons.Default.DateRange, stringResource(R.string.time_filter))
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { onExpandedChange(false) }) {
             DashboardTimeFilter.entries.forEach { filter ->
@@ -230,7 +238,7 @@ fun GeminiInsightCard(state: GeminiInsightUiState, onRequest: () -> Unit) {
                 )
                 Spacer(Modifier.size(8.dp))
                 Text(
-                    text = "Phân tích AI từ máy chủ",
+                    text = stringResource(R.string.ai_analysis_server),
                     style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.tertiary,
                     fontWeight = FontWeight.Bold
@@ -240,28 +248,28 @@ fun GeminiInsightCard(state: GeminiInsightUiState, onRequest: () -> Unit) {
             when (state) {
                 GeminiInsightUiState.Idle -> {
                     Text(
-                        "Nhật ký đường huyết chỉ được gửi đi sau khi bạn chọn phân tích.",
+                        stringResource(R.string.idle_gemini_msg),
                         style = MaterialTheme.typography.bodyMedium
                     )
                     Spacer(Modifier.height(12.dp))
-                    OutlinedButton(onClick = onRequest) { Text("Phân tích dữ liệu của tôi") }
+                    OutlinedButton(onClick = onRequest) { Text(stringResource(R.string.analyze_my_data)) }
                 }
                 GeminiInsightUiState.Loading -> {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                         Spacer(Modifier.size(10.dp))
-                        Text("Đang gửi yêu cầu phân tích an toàn…")
+                        Text(stringResource(R.string.sending_request))
                     }
                 }
                 is GeminiInsightUiState.Content -> {
                     Text(state.text, style = MaterialTheme.typography.bodyMedium)
                     Spacer(Modifier.height(12.dp))
-                    OutlinedButton(onClick = onRequest) { Text("Làm mới phân tích") }
+                    OutlinedButton(onClick = onRequest) { Text(stringResource(R.string.refresh_analysis)) }
                 }
                 is GeminiInsightUiState.Unavailable -> {
                     Text(state.message, style = MaterialTheme.typography.bodyMedium)
                     Spacer(Modifier.height(12.dp))
-                    OutlinedButton(onClick = onRequest) { Text("Thử lại") }
+                    OutlinedButton(onClick = onRequest) { Text(stringResource(R.string.try_again)) }
                 }
             }
         }

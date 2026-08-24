@@ -1,5 +1,9 @@
 package com.example.nhatkyduonghuyet.ui.navigation
 
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -17,6 +21,8 @@ import com.example.nhatkyduonghuyet.ml.GlucosePredictor
 import com.example.nhatkyduonghuyet.ml.GlucoseScanner
 import com.example.nhatkyduonghuyet.viewmodel.LogEntryViewModel
 
+import androidx.compose.ui.unit.IntOffset
+
 @Composable
 fun AppNavHost(
     navController: NavHostController,
@@ -28,7 +34,31 @@ fun AppNavHost(
     NavHost(
         navController = navController,
         startDestination = "main_pager",
-        modifier = modifier
+        modifier = modifier,
+        enterTransition = {
+            fadeIn(animationSpec = tween<Float>(300)) + slideIntoContainer(
+                AnimatedContentTransitionScope.SlideDirection.Start,
+                animationSpec = tween<IntOffset>(300)
+            )
+        },
+        exitTransition = {
+            fadeOut(animationSpec = tween<Float>(300)) + slideOutOfContainer(
+                AnimatedContentTransitionScope.SlideDirection.Start,
+                animationSpec = tween<IntOffset>(300)
+            )
+        },
+        popEnterTransition = {
+            fadeIn(animationSpec = tween<Float>(300)) + slideIntoContainer(
+                AnimatedContentTransitionScope.SlideDirection.End,
+                animationSpec = tween<IntOffset>(300)
+            )
+        },
+        popExitTransition = {
+            fadeOut(animationSpec = tween<Float>(300)) + slideOutOfContainer(
+                AnimatedContentTransitionScope.SlideDirection.End,
+                animationSpec = tween<IntOffset>(300)
+            )
+        }
     ) {
         composable("main_pager") {
             MainPagerScreen(

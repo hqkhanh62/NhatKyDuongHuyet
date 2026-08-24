@@ -10,22 +10,34 @@ import java.io.OutputStreamWriter
 object CsvExportHelper {
 
     private val CSV_HEADERS = listOf(
-        "Ngày",
-        "Buổi",
-        "Loại insulin/thuốc",
-        "Liều (đv/viên)",
-        "Giờ tiêm/uống",
-        "Đường huyết trước (mmol/L)",
-        "Đường huyết sau 2 giờ (mmol/L)",
-        "Triệu chứng/Ghi chú"
+        "Ngay",
+        "Buoi",
+        "Loai insulin/thuoc",
+        "Lieu (dv/vien)",
+        "Gio tiem/uong",
+        "Duong huyet truoc (mmol/L)",
+        "Duong huyet sau 2 gio (mmol/L)",
+        "Trieu chung/Ghi chu"
     )
+
+    /**
+     * Escape gia tri CSV: boc trong dau ngoac kep neu chua dau phay hoac xuong dong
+     */
+    private fun escapeCsv(value: String): String {
+        return when {
+            value.contains(",") || value.contains("\n") || value.contains("\r") || value.contains("\"") -> {
+                "\"" + value.replace("\"", "\"\"") + "\""
+            }
+            else -> value
+        }
+    }
 
     fun exportLogEntriesToCsv(context: Context, uri: Uri, logEntries: List<LogEntry>): Boolean {
         return try {
             context.contentResolver.openOutputStream(uri)?.use { outputStream ->
                 OutputStreamWriter(outputStream).use { writer ->
                     // Write headers
-                    writer.append(CSV_HEADERS.joinToString(","))
+                    writer.append(CSV_HEADERS.joinToString(",") { escapeCsv(it) })
                     writer.append("\n")
 
                     // Write data
@@ -40,7 +52,7 @@ object CsvExportHelper {
                             entry.bgAfter?.toString() ?: "",
                             entry.note ?: ""
                         )
-                        writer.append(row.joinToString(","))
+                        writer.append(row.joinToString(",") { escapeCsv(it) })
                         writer.append("\n")
                     }
                 }
@@ -58,12 +70,12 @@ object CsvExportHelper {
             context.contentResolver.openInputStream(uri)?.use { inputStream ->
                 BufferedReader(InputStreamReader(inputStream)).use { reader ->
                     // Skip header
-                    val header = reader.readLine()
-                    
+                    reader.readLine()
+
                     var line: String? = reader.readLine()
                     while (line != null) {
                         if (line.isNotBlank()) {
-                            val parts = line.split(",")
+                            val parts = parseCsvLine(line)
                             if (parts.size >= 8) {
                                 val entry = LogEntry(
                                     date = parts[0].trim(),
@@ -86,5 +98,41 @@ object CsvExportHelper {
             e.printStackTrace()
         }
         return importedEntries
+    }
+
+    /**
+     * Parse dong CSV co ho tro gia tri boc trong dau ngoac kep
+     */
+    private fun parseCsvLine(line: String): List<String> {
+        val result = mutableListOf<String>()
+        val current = StringBuilder()
+        var inQuotes = false
+        var i = 0
+        while (i < line.length) {
+            val char = line[i]
+            when {
+                char == '"' && !inQuotes -> {
+                    inQuotes = true
+                }
+                char == '"' && inQuotes -> {
+                    if (i + 1 < line.length && line[i + 1] == '"') {
+                        current.append('"')
+                        i++
+                    } else {
+                        inQuotes = false
+                    }
+                }
+                char == ',' && !inQuotes -> {
+                    result.add(current.toString())
+                    current.clear()
+                }
+                else -> {
+                    current.append(char)
+                }
+            }
+            i++
+        }
+        result.add(current.toString())
+        return result
     }
 }

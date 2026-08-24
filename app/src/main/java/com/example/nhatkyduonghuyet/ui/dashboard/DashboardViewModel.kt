@@ -35,6 +35,9 @@ import java.util.Date
 import java.util.Locale
 import javax.inject.Inject
 
+import android.content.Context
+import com.example.nhatkyduonghuyet.util.PdfExportHelper
+
 @HiltViewModel
 class DashboardViewModel @Inject constructor(
     private val repo: LogRepository,
@@ -43,6 +46,13 @@ class DashboardViewModel @Inject constructor(
     private val aiRepo: AIRepository,
     private val geminiUseCase: GeminiAnalysisUseCase
 ) : ViewModel() {
+
+    fun exportToPdf(context: Context) {
+        viewModelScope.launch {
+            val entries = repo.getAllLogs().first()
+            PdfExportHelper.exportLogEntriesToPdf(context, entries)
+        }
+    }
 
     private val _realtimePrediction = MutableStateFlow<PredictionResult?>(null)
     private val _multiStepForecast = MutableStateFlow<MultiStepResult?>(null)
@@ -97,7 +107,8 @@ class DashboardViewModel @Inject constructor(
             }
 
             _geminiInsight.value = GeminiInsightUiState.Loading
-            when (val result = geminiUseCase.getAnalysis(history, _multiStepForecast.value)) {
+            val isEnglish = Locale.getDefault().language == "en"
+            when (val result = geminiUseCase.getAnalysis(history, _multiStepForecast.value, isEnglish)) {
                 is CloudInsightResult.Success -> {
                     lastInsightFingerprint = fingerprint
                     _geminiInsight.value = GeminiInsightUiState.Content(result.insight)

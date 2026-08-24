@@ -1,0 +1,41 @@
+<resources>
+    <string name="app_name">Blood Glucose &amp; Insulin Log</string>
+
+    <!-- Dashboard -->
+    <string name="dashboard_title">Health Dashboard Pro</string>
+    <string name="scan">Scan</string>
+    <string name="predict">Predict</string>
+    <string name="list">List</string>
+    <string name="viewing_period">Viewing: %1$s</string>
+    <string name="time_filter">Time Filter</string>
+    <string name="ai_analysis_server">AI Cloud Analysis</string>
+    <string name="analyze_my_data">Analyze My Data</string>
+    <string name="sending_request">Sending secure request&#8230;</string>
+    <string name="refresh_analysis">Refresh Analysis</string>
+    <string name="try_again">Try Again</string>
+    <string name="smart_analysis">Smart Insights</string>
+    <string name="ai_upgrade_title">AI Intelligence Upgrade</string>
+    <string name="ai_upgrade_msg">You have 50 new entries. The system is ready to retrain the model to provide more accurate predictions for you.</string>
+    <string name="great">Great</string>
+    <string name="export_report">Export PDF Report</string>
+    <string name="idle_gemini_msg">Your glucose log is only sent after you choose to analyze.</string>
+
+    <!-- Prediction -->
+    <string name="prediction_title">Glucose AI Prediction</string>
+    <string name="back">Back</string>
+    <string name="invalid_number_error">Enter a valid number, e.g., 5.6.</string>
+    <string name="analyzing">Analyzing&#8230;</string>
+    <string name="predict_now">PREDICT NOW</string>
+    <string name="ai_is_analyzing">AI is analyzing&#8230;</string>
+    <string name="input_instruction">Enter readings to start AI prediction</string>
+    <string name="input_parameters">Input Parameters</string>
+    <string name="fasting_label">Fasting Blood Glucose (2.0&#8211;25.0 mmol/L)</string>
+    <string name="prediction_time">Prediction Time:</string>
+    <string name="after_lunch">After Lunch</string>
+    <string name="after_dinner">After Dinner</string>
+    <string name="prediction_result">PREDICTION RESULT</string>
+    <string name="status_stable">Stable</string>
+    <string name="status_monitor">Need Monitoring</string>
+    <string name="status_high_risk">High Risk</string>
+    <string name="status_danger">DANGER WARNING</string>
+</resources>

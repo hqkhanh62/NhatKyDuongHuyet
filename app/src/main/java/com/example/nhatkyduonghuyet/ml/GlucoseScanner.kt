@@ -8,11 +8,12 @@ import javax.inject.Singleton
 
 data class ScannedGlucoseResult(
     val value: Float,
-    val date: String? = null, // yyyy-MM-dd format
-    val time: String? = null  // HH:mm format
+    val date: String? = null,
+    val time: String? = null
 )
 
-class GlucoseScanner {
+@Singleton
+class GlucoseScanner @Inject constructor() {
 
     private val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
 
@@ -47,32 +48,27 @@ class GlucoseScanner {
     }
 
     private fun extractTime(text: String): String? {
-        // Regex for HH:mm or HH:mm AM/PM
         val timeRegex = Regex("""\b([01]?\d|2[0-3]):([0-5]\d)\b""")
         return timeRegex.find(text)?.value
     }
 
     private fun extractDate(text: String): String? {
-        // Look for YYYY-MM-DD, DD/MM/YYYY, or DD/MM
         val dateRegex = Regex("""\b(\d{4}[-/]\d{1,2}[-/]\d{1,2})\b|\b(\d{1,2}[-/]\d{1,2}[-/]\d{4})\b|\b(\d{1,2}[-/]\d{1,2})\b""")
         val match = dateRegex.find(text)?.value ?: return null
-        
+
         return try {
             val parts = match.split('/', '-')
             val currentYear = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)
-            
+
             when (parts.size) {
                 3 -> {
                     if (parts[0].length == 4) {
-                        // YYYY-MM-DD
                         "%04d-%02d-%02d".format(parts[0].toInt(), parts[1].toInt(), parts[2].toInt())
                     } else {
-                        // DD/MM/YYYY
                         "%04d-%02d-%02d".format(parts[2].toInt(), parts[1].toInt(), parts[0].toInt())
                     }
                 }
                 2 -> {
-                    // DD/MM
                     "%04d-%02d-%02d".format(currentYear, parts[1].toInt(), parts[0].toInt())
                 }
                 else -> null
