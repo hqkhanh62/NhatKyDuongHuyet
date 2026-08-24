@@ -417,16 +417,13 @@ public final class DaggerNhatKyDuongHuyetApplication_HiltComponents_SingletonC {
 
     @IdentifierNameString
     private static final class LazyClassKeyProvider {
-      static String com_example_nhatkyduonghuyet_viewmodel_StatsViewModel = "com.example.nhatkyduonghuyet.viewmodel.StatsViewModel";
-
       static String com_example_nhatkyduonghuyet_ui_dashboard_DashboardViewModel = "com.example.nhatkyduonghuyet.ui.dashboard.DashboardViewModel";
 
       static String com_example_nhatkyduonghuyet_viewmodel_DetailViewModel = "com.example.nhatkyduonghuyet.viewmodel.DetailViewModel";
 
       static String com_example_nhatkyduonghuyet_viewmodel_LogEntryViewModel = "com.example.nhatkyduonghuyet.viewmodel.LogEntryViewModel";
 
-      @KeepFieldType
-      StatsViewModel com_example_nhatkyduonghuyet_viewmodel_StatsViewModel2;
+      static String com_example_nhatkyduonghuyet_viewmodel_StatsViewModel = "com.example.nhatkyduonghuyet.viewmodel.StatsViewModel";
 
       @KeepFieldType
       DashboardViewModel com_example_nhatkyduonghuyet_ui_dashboard_DashboardViewModel2;
@@ -436,6 +433,9 @@ public final class DaggerNhatKyDuongHuyetApplication_HiltComponents_SingletonC {
 
       @KeepFieldType
       LogEntryViewModel com_example_nhatkyduonghuyet_viewmodel_LogEntryViewModel2;
+
+      @KeepFieldType
+      StatsViewModel com_example_nhatkyduonghuyet_viewmodel_StatsViewModel2;
     }
   }
 
@@ -485,25 +485,25 @@ public final class DaggerNhatKyDuongHuyetApplication_HiltComponents_SingletonC {
 
     @IdentifierNameString
     private static final class LazyClassKeyProvider {
-      static String com_example_nhatkyduonghuyet_viewmodel_DetailViewModel = "com.example.nhatkyduonghuyet.viewmodel.DetailViewModel";
-
-      static String com_example_nhatkyduonghuyet_viewmodel_StatsViewModel = "com.example.nhatkyduonghuyet.viewmodel.StatsViewModel";
-
       static String com_example_nhatkyduonghuyet_viewmodel_LogEntryViewModel = "com.example.nhatkyduonghuyet.viewmodel.LogEntryViewModel";
 
       static String com_example_nhatkyduonghuyet_ui_dashboard_DashboardViewModel = "com.example.nhatkyduonghuyet.ui.dashboard.DashboardViewModel";
 
-      @KeepFieldType
-      DetailViewModel com_example_nhatkyduonghuyet_viewmodel_DetailViewModel2;
+      static String com_example_nhatkyduonghuyet_viewmodel_DetailViewModel = "com.example.nhatkyduonghuyet.viewmodel.DetailViewModel";
 
-      @KeepFieldType
-      StatsViewModel com_example_nhatkyduonghuyet_viewmodel_StatsViewModel2;
+      static String com_example_nhatkyduonghuyet_viewmodel_StatsViewModel = "com.example.nhatkyduonghuyet.viewmodel.StatsViewModel";
 
       @KeepFieldType
       LogEntryViewModel com_example_nhatkyduonghuyet_viewmodel_LogEntryViewModel2;
 
       @KeepFieldType
       DashboardViewModel com_example_nhatkyduonghuyet_ui_dashboard_DashboardViewModel2;
+
+      @KeepFieldType
+      DetailViewModel com_example_nhatkyduonghuyet_viewmodel_DetailViewModel2;
+
+      @KeepFieldType
+      StatsViewModel com_example_nhatkyduonghuyet_viewmodel_StatsViewModel2;
     }
 
     private static final class SwitchingProvider<T> implements Provider<T> {

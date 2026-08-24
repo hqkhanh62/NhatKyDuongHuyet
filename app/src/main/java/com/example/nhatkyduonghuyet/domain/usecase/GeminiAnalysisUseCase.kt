@@ -3,7 +3,6 @@ package com.example.nhatkyduonghuyet.domain.usecase
 import com.example.nhatkyduonghuyet.BuildConfig
 import com.example.nhatkyduonghuyet.ai.MultiStepResult
 import com.google.ai.client.generativeai.GenerativeModel
-import com.google.ai.client.generativeai.type.content
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
@@ -22,7 +21,8 @@ class GeminiAnalysisUseCase @Inject constructor() {
 
     suspend fun getAnalysis(historyData: String, forecastData: MultiStepResult?, isEnglish: Boolean = false): CloudInsightResult =
         withContext(Dispatchers.IO) {
-            if (BuildConfig.GEMINI_API_KEY.isEmpty() || BuildConfig.GEMINI_API_KEY == "YOUR_GEMINI_API_KEY_HERE") {
+            val apiKey = BuildConfig.GEMINI_API_KEY
+            if (apiKey == "" || apiKey == "YOUR_GEMINI_API_KEY_HERE") {
                 val errorMsg = if (isEnglish) "API Key not configured." else "Chưa cấu hình API Key cho Gemini."
                 return@withContext CloudInsightResult.Failure(errorMsg)
             }
@@ -40,54 +40,38 @@ class GeminiAnalysisUseCase @Inject constructor() {
                     } ?: "Chưa có dữ liệu dự báo LSTM."
                 }
 
+                val historyText = if (historyData == "") {
+                    if (isEnglish) "No history available." else "Không có dữ liệu lịch sử."
+                } else historyData
+
                 val prompt = if (isEnglish) {
-                    """
-                        You are an expert in endocrinology and diabetes.
-                        User's glucose log (mmol/L):
-                        $historyData
-                        
-                        LSTM Forecast data:
-                        $forecastInfo
-                        
-                        Analyze trends based on both history and LSTM forecast. Provide 3 concise, practical tips:
-                        1. Diet.
-                        2. Activity.
-                        3. Risk warnings (if any).
-                        
-                        Requirements: Answer in English, professional, and use a bulleted list.
-                    """.trimIndent()
+                    "You are an expert in endocrinology and diabetes. " +
+                    "User's glucose log (mmol/L): " + historyText + " " +
+                    "LSTM Forecast data: " + forecastInfo + " " +
+                    "Analyze trends and provide 3 concise tips on Diet, Activity, and Risks. " +
+                    "Answer in English, professional, bulleted list."
                 } else {
-                    """
-                        Bạn là một chuyên gia về nội tiết và tiểu đường. 
-                        Dưới đây là lịch sử đo đường huyết của người dùng (đơn vị: mmol/L):
-                        ${historyData}
-                        
-                        Dữ liệu bổ trợ từ model LSTM chuyên biệt:
-                        ${forecastInfo}
-                        
-                        Hãy phân tích xu hướng dựa trên cả lịch sử và dự báo LSTM, sau đó đưa ra 3 lời khuyên ngắn gọn, thiết thực nhất về:
-                        1. Chế độ ăn uống.
-                        2. Vận động.
-                        3. Cảnh báo rủi ro (nếu có).
-                        
-                        Yêu cầu: Trả lời bằng tiếng Việt, súc tích, chuyên nghiệp. Trình bày dạng danh sách gạch đầu dòng.
-                    """.trimIndent()
+                    "Bạn là một chuyên gia về nội tiết và tiểu đường. " +
+                    "Dưới đây là lịch sử đo đường huyết (mmol/L): " + historyText + " " +
+                    "Dữ liệu bổ trợ từ model LSTM: " + forecastInfo + " " +
+                    "Hãy phân tích xu hướng và đưa ra 3 lời khuyên ngắn gọn về Chế độ ăn, Vận động và Rủi ro. " +
+                    "Trả lời bằng tiếng Việt, súc tích, dạng danh sách."
                 }
 
-                val response = generativeModel.generateContent(
-                    content {
-                        text(prompt)
-                    }
-                )
+                if (prompt == "") {
+                    return@withContext CloudInsightResult.Failure("Prompt is empty")
+                }
+
+                val response = generativeModel.generateContent(prompt)
                 
                 val resultText = response.text
-                if (resultText != null) {
+                if (resultText != null && resultText != "") {
                     CloudInsightResult.Success(resultText)
                 } else {
-                    CloudInsightResult.Failure("Gemini không trả về kết quả.")
+                    CloudInsightResult.Failure(if (isEnglish) "Gemini returned no result." else "Gemini không trả về kết quả.")
                 }
             } catch (e: Exception) {
-                CloudInsightResult.Failure("Lỗi kết nối Gemini: ${e.localizedMessage ?: "Vui lòng thử lại sau"}")
+                CloudInsightResult.Failure(if (isEnglish) "AI Connection Error: ${e.localizedMessage}" else "Lỗi kết nối Gemini: ${e.localizedMessage ?: "Vui lòng thử lại sau"}")
             }
         }
 }

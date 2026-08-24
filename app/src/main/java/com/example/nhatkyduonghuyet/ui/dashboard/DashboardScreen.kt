@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.ui.res.stringResource
 import com.example.nhatkyduonghuyet.R
 import androidx.compose.material.icons.filled.PhotoCamera

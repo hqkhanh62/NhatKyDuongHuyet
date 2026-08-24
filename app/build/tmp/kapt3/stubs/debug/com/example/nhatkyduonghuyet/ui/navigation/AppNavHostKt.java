@@ -1,5 +1,6 @@
 package com.example.nhatkyduonghuyet.ui.navigation;
 
+import androidx.compose.animation.AnimatedContentTransitionScope;
 import androidx.compose.runtime.Composable;
 import androidx.compose.ui.Modifier;
 import androidx.navigation.NavHostController;
