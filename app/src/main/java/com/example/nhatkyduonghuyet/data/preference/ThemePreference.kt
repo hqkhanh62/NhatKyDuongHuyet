@@ -15,12 +15,12 @@ class ThemePreference(private val context: Context) {
     private val DARK_MODE_KEY = booleanPreferencesKey("dark_mode")
 
     val isDarkMode: Flow<Boolean> = context.dataStore.data
-        .map { preferences ->
+        .map { preferences: Preferences ->
             preferences[DARK_MODE_KEY] ?: false
         }
 
     suspend fun setDarkMode(enabled: Boolean) {
-        context.dataStore.edit { preferences ->
+        context.dataStore.edit { preferences: Preferences ->
             preferences[DARK_MODE_KEY] = enabled
         }
     }
