@@ -1,5 +1,9 @@
 package com.example.nhatkyduonghuyet.ui.navigation
 
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -14,6 +18,7 @@ import com.example.nhatkyduonghuyet.ui.dashboard.DashboardScreenPro
 import com.example.nhatkyduonghuyet.ui.navigation.MainPagerScreen
 import com.example.nhatkyduonghuyet.ui.prediction.PredictionScreen
 import com.example.nhatkyduonghuyet.ui.screens.search.SearchScreen
+import com.example.nhatkyduonghuyet.ui.settings.SettingsScreen
 import com.example.nhatkyduonghuyet.ui.scanner.ScannerScreen
 import com.example.nhatkyduonghuyet.ml.GlucosePredictor
 import com.example.nhatkyduonghuyet.ml.GlucoseScanner
@@ -30,7 +35,31 @@ fun AppNavHost(
     NavHost(
         navController = navController,
         startDestination = "main_pager",
-        modifier = modifier
+        modifier = modifier,
+        enterTransition = {
+            slideIntoContainer(
+                towards = AnimatedContentTransitionScope.SlideDirection.Left,
+                animationSpec = tween(300)
+            ) + fadeIn(animationSpec = tween(300))
+        },
+        exitTransition = {
+            slideOutOfContainer(
+                towards = AnimatedContentTransitionScope.SlideDirection.Left,
+                animationSpec = tween(300)
+            ) + fadeOut(animationSpec = tween(300))
+        },
+        popEnterTransition = {
+            slideIntoContainer(
+                towards = AnimatedContentTransitionScope.SlideDirection.Right,
+                animationSpec = tween(300)
+            ) + fadeIn(animationSpec = tween(300))
+        },
+        popExitTransition = {
+            slideOutOfContainer(
+                towards = AnimatedContentTransitionScope.SlideDirection.Right,
+                animationSpec = tween(300)
+            ) + fadeOut(animationSpec = tween(300))
+        }
     ) {
         composable("main_pager") {
             MainPagerScreen(
@@ -80,6 +109,10 @@ fun AppNavHost(
                 predictor = predictor
             )
         }
+
+        composable(Screen.Settings.route) {
+            SettingsScreen(navController = navController)
+        }
     }
 }
 
@@ -91,4 +124,5 @@ sealed class Screen(val route: String) {
     object Search : Screen("search")
     object Prediction : Screen("prediction")
     object Scanner : Screen("scanner")
+    object Settings : Screen("settings")
 }
