@@ -31,13 +31,20 @@ import com.github.mikephil.charting.listener.OnChartGestureListener
 import java.text.SimpleDateFormat
 import java.util.Locale
 
+import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.ui.platform.LocalContext
+import androidx.hilt.navigation.compose.hiltViewModel
+import com.example.nhatkyduonghuyet.ui.dashboard.DashboardViewModel
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun ChartScreen(
     navController: NavController,
-    viewModel: LogEntryViewModel
+    viewModel: LogEntryViewModel,
+    dashboardViewModel: DashboardViewModel = hiltViewModel()
 ) {
     val allEntries by viewModel.allLogEntries.collectAsState()
+    val context = LocalContext.current
 
     var showMorning by remember { mutableStateOf(true) }
     var showNoon by remember { mutableStateOf(true) }
@@ -71,6 +78,11 @@ fun ChartScreen(
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Quay lại")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { dashboardViewModel.exportToPdf(context) }) {
+                        Icon(Icons.Default.PictureAsPdf, contentDescription = "Xuất PDF")
                     }
                 }
             )

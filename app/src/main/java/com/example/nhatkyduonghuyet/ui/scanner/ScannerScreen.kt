@@ -47,6 +47,7 @@ fun ScannerScreen(
     
     var lastResult by remember { mutableStateOf<ScannedGlucoseResult?>(null) }
     var isProcessing by remember { mutableStateOf(false) }
+    var hasDetectedSuccess by remember { mutableStateOf(false) }
     var showRedFlash by remember { mutableStateOf(false) }
     var cameraControlState by remember { mutableStateOf<CameraControl?>(null) }
 
@@ -143,13 +144,14 @@ fun ScannerScreen(
                                 .also {
                                     it.setAnalyzer(cameraExecutor) { imageProxy ->
                                         val mediaImage = imageProxy.image
-                                        if (mediaImage != null && !isProcessing) {
+                                        if (mediaImage != null && !isProcessing && !hasDetectedSuccess) {
                                             val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
                                             isProcessing = true
                                             scanner.processImage(
                                                 image,
                                                 onResult = { result ->
                                                     if (result != null) {
+                                                        hasDetectedSuccess = true
                                                         val isDanger = result.value > 13.0f
                                                         triggerHealthVibration(isDanger)
                                                         if (isDanger) {

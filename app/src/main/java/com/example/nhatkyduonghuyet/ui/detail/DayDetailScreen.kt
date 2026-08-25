@@ -29,8 +29,7 @@ import com.example.nhatkyduonghuyet.viewmodel.LogEntryViewModel
 fun DayDetailScreen(
     navController: NavController,
     viewModel: LogEntryViewModel,
-    selectedDate: String,
-    scanner: GlucoseScanner
+    selectedDate: String
 ) {
     LaunchedEffect(selectedDate) {
         viewModel.selectDate(selectedDate)
@@ -74,7 +73,6 @@ fun DayDetailScreen(
                 SessionEntryCard(
                     sessionName = sessionName,
                     logEntryState = logEntryState,
-                    scanner = scanner,
                     onSave = { logEntry ->
                         viewModel.upsertLogEntry(logEntry)
                     }

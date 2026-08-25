@@ -37,40 +37,15 @@ import java.util.Locale
 fun SessionEntryCard(
     sessionName: String,
     logEntryState: MutableState<LogEntry>,
-    scanner: GlucoseScanner?,
     onSave: (LogEntry) -> Unit
 ) {
     var logEntry by logEntryState
-    var showScanner by remember { mutableStateOf(false) }
-    var scanningField by remember { mutableStateOf("") }
 
     var bgBeforeText by remember(logEntry.id, logEntry.session) {
         mutableStateOf(logEntry.bgBefore?.toString() ?: "")
     }
     var bgAfterText by remember(logEntry.id, logEntry.session) {
         mutableStateOf(logEntry.bgAfter?.toString() ?: "")
-    }
-
-    fun handleScannerResult(value: Float) {
-        var updatedEntry = logEntry.copy()
-        if (scanningField == "bgBefore") {
-            updatedEntry = updatedEntry.copy(bgBefore = value.toDouble())
-            bgBeforeText = value.toString()
-        } else if (scanningField == "bgAfter") {
-            updatedEntry = updatedEntry.copy(bgAfter = value.toDouble())
-            bgAfterText = value.toString()
-        }
-        logEntry = updatedEntry
-        onSave(updatedEntry)
-        showScanner = false
-    }
-
-    if (showScanner && scanner != null) {
-        CameraScannerDialog(
-            scanner = scanner,
-            onDismiss = { showScanner = false },
-            onResult = { handleScannerResult(it) }
-        )
     }
 
     fun handleVoiceResult(field: String, speech: String) {
@@ -186,13 +161,7 @@ fun SessionEntryCard(
                 },
                 label = "Đường huyết trước (mmol/L)",
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                onVoiceResult = { handleVoiceResult("bgBefore", it) },
-                onCameraClick = if (scanner != null) {
-                    {
-                        scanningField = "bgBefore"
-                        showScanner = true
-                    }
-                } else null
+                onVoiceResult = { handleVoiceResult("bgBefore", it) }
             )
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -213,13 +182,7 @@ fun SessionEntryCard(
                 },
                 label = "Đường huyết sau (mmol/L)",
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                onVoiceResult = { handleVoiceResult("bgAfter", it) },
-                onCameraClick = if (scanner != null) {
-                    {
-                        scanningField = "bgAfter"
-                        showScanner = true
-                    }
-                } else null
+                onVoiceResult = { handleVoiceResult("bgAfter", it) }
             )
 
             Spacer(modifier = Modifier.height(8.dp))

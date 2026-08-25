@@ -62,10 +62,27 @@ class GlucoseScanner @Inject constructor() {
 
             when (parts.size) {
                 3 -> {
+                    val p1 = parts[0].toInt()
+                    val p2 = parts[1].toInt()
+                    val p3 = parts[2].toInt()
+                    
                     if (parts[0].length == 4) {
-                        "%04d-%02d-%02d".format(parts[0].toInt(), parts[1].toInt(), parts[2].toInt())
+                        // yyyy-??-??
+                        if (p2 > 12 && p3 <= 12) {
+                            // yyyy-dd-mm -> yyyy-mm-dd
+                            "%04d-%02d-%02d".format(p1, p3, p2)
+                        } else {
+                            "%04d-%02d-%02d".format(p1, p2, p3)
+                        }
                     } else {
-                        "%04d-%02d-%02d".format(parts[2].toInt(), parts[1].toInt(), parts[0].toInt())
+                        // ??-??-yyyy
+                        if (p1 > 12 && p2 <= 12) {
+                            // dd-mm-yyyy -> yyyy-mm-dd
+                            "%04d-%02d-%02d".format(p3, p2, p1)
+                        } else {
+                            // mm-dd-yyyy or valid dd-mm-yyyy
+                            "%04d-%02d-%02d".format(p3, p1, p2)
+                        }
                     }
                 }
                 2 -> {
