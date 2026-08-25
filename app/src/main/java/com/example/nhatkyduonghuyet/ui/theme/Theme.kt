@@ -1,31 +1,38 @@
 package com.example.nhatkyduonghuyet.ui.theme
 
+import android.content.Context
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import com.example.nhatkyduonghuyet.data.preference.ThemePreference
 
 private val LightColors = lightColorScheme(
-    primary = androidx.compose.ui.graphics.Color(0xFF1976D2),
-    onPrimary = androidx.compose.ui.graphics.Color.White,
-    secondary = androidx.compose.ui.graphics.Color(0xFF03DAC6),
-    onSecondary = androidx.compose.ui.graphics.Color.Black,
-    background = androidx.compose.ui.graphics.Color(0xFFF5F5F5),
-    onBackground = androidx.compose.ui.graphics.Color.Black,
-    surface = androidx.compose.ui.graphics.Color.White,
-    onSurface = androidx.compose.ui.graphics.Color.Black
+    primary = Color(0xFF1976D2),
+    onPrimary = Color.White,
+    secondary = Color(0xFF03DAC6),
+    onSecondary = Color.Black,
+    background = Color(0xFFF5F5F5),
+    onBackground = Color.Black,
+    surface = Color.White,
+    onSurface = Color.Black
 )
 
 private val DarkColors = darkColorScheme(
-    primary = androidx.compose.ui.graphics.Color(0xFF90CAF9),
-    onPrimary = androidx.compose.ui.graphics.Color.Black,
-    secondary = androidx.compose.ui.graphics.Color(0xFF03DAC6),
-    onSecondary = androidx.compose.ui.graphics.Color.Black,
-    background = androidx.compose.ui.graphics.Color(0xFF121212),
-    onBackground = androidx.compose.ui.graphics.Color.White,
-    surface = androidx.compose.ui.graphics.Color(0xFF1E1E1E),
-    onSurface = androidx.compose.ui.graphics.Color.White
+    primary = Color(0xFF90CAF9),
+    onPrimary = Color.Black,
+    secondary = Color(0xFF03DAC6),
+    onSecondary = Color.Black,
+    background = Color(0xFF121212),
+    onBackground = Color.White,
+    surface = Color(0xFF1E1E1E),
+    onSurface = Color.White
 )
 
 @Composable
@@ -33,12 +40,16 @@ fun NhatKyDuongHuyetTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit
 ) {
-    val colors = if (darkTheme) DarkColors else LightColors
+    val context = LocalContext.current
+    val themePreference = remember { ThemePreference(context) }
+    val savedDarkMode by themePreference.isDarkMode.collectAsState(initial = darkTheme)
+    
+    val isDark = savedDarkMode || darkTheme
 
     MaterialTheme(
-        colorScheme = colors,
-        typography = Typography,   // sẽ khai báo ở file Typography.kt
-        shapes = Shapes,           // sẽ khai báo ở file Shape.kt
+        colorScheme = if (isDark) DarkColors else LightColors,
+        typography = Typography,
+        shapes = Shapes,
         content = content
     )
 }
