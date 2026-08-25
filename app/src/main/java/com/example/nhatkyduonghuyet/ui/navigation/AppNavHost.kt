@@ -1,12 +1,15 @@
 package com.example.nhatkyduonghuyet.ui.navigation
 
-import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.with
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -32,86 +35,72 @@ fun AppNavHost(
     scanner: GlucoseScanner,
     modifier: Modifier = Modifier
 ) {
-    NavHost(
-        navController = navController,
-        startDestination = "main_pager",
-        modifier = modifier,
-        enterTransition = {
-            slideIntoContainer(
-                towards = AnimatedContentTransitionScope.SlideDirection.Left,
-                animationSpec = tween(300)
-            ) + fadeIn(animationSpec = tween(300))
+    val currentBackStack by navController.currentBackStackEntryFlow.collectAsStateWithLifecycle(initialValue = null)
+
+    AnimatedContent(
+        targetState = currentBackStack?.destination?.route ?: "main_pager",
+        transitionSpec = {
+            fadeIn(animationSpec = tween(300)) with fadeOut(animationSpec = tween(300))
         },
-        exitTransition = {
-            slideOutOfContainer(
-                towards = AnimatedContentTransitionScope.SlideDirection.Left,
-                animationSpec = tween(300)
-            ) + fadeOut(animationSpec = tween(300))
-        },
-        popEnterTransition = {
-            slideIntoContainer(
-                towards = AnimatedContentTransitionScope.SlideDirection.Right,
-                animationSpec = tween(300)
-            ) + fadeIn(animationSpec = tween(300))
-        },
-        popExitTransition = {
-            slideOutOfContainer(
-                towards = AnimatedContentTransitionScope.SlideDirection.Right,
-                animationSpec = tween(300)
-            ) + fadeOut(animationSpec = tween(300))
-        }
-    ) {
-        composable("main_pager") {
-            MainPagerScreen(
-                navController = navController,
-                viewModel = viewModel,
-                predictor = predictor
-            )
-        }
+        label = "nav_animation"
+    ) { targetRoute ->
+        NavHost(
+            navController = navController,
+            startDestination = "main_pager",
+            modifier = modifier
+        ) {
+            composable("main_pager") {
+                MainPagerScreen(
+                    navController = navController,
+                    viewModel = viewModel,
+                    predictor = predictor
+                )
+            }
 
-        composable(Screen.Scanner.route) {
-            val dashboardViewModel: com.example.nhatkyduonghuyet.ui.dashboard.DashboardViewModel = hiltViewModel()
-            ScannerScreen(
-                navController = navController,
-                scanner = scanner,
-                onGlucoseDetected = { result ->
-                    dashboardViewModel.onGlucoseScanned(result)
-                }
-            )
-        }
+            composable(Screen.Scanner.route) {
+                val dashboardViewModel: com.example.nhatkyduonghuyet.ui.dashboard.DashboardViewModel = hiltViewModel()
+                ScannerScreen(
+                    navController = navController,
+                    scanner = scanner,
+                    onGlucoseDetected = { result ->
+                        dashboardViewModel.onGlucoseScanned(result)
+                    }
+                )
+            }
 
-        composable(Screen.DayDetail.route + "/{date}") { backStackEntry ->
-            val date = backStackEntry.arguments?.getString("date") ?: return@composable
-            DayDetailScreen(
-                navController = navController,
-                viewModel = viewModel,
-                selectedDate = date
-            )
-        }
+            composable(Screen.DayDetail.route + "/{date}") { backStackEntry ->
+                val date = backStackEntry.arguments?.getString("date") ?: return@composable
+                DayDetailScreen(
+                    navController = navController,
+                    viewModel = viewModel,
+                    selectedDate = date
+                )
+            }
 
-        composable(Screen.Chart.route) {
-            ChartScreen(
-                navController = navController,
-                viewModel = viewModel
-            )
-        }
+            composable(Screen.Chart.route) {
+                ChartScreen(
+                    navController = navController,
+                    viewModel = viewModel
+                )
+            }
 
-        composable(Screen.Search.route) {
-            SearchScreen(
-                navController = navController,
-                viewModel = viewModel
-            )
-        }
+            composable(Screen.Search.route) {
+                SearchScreen(
+                    navController = navController,
+                    viewModel = viewModel
+                )
+            }
 
-        composable(Screen.Prediction.route) {
-            PredictionScreen(
-                navController = navController,
-                predictor = predictor
-            )
-        }
+            composable(Screen.Prediction.route) {
+                PredictionScreen(
+                    navController = navController,
+                    predictor = predictor
+                )
+            }
 
-        composable(Screen.Settings.route) {
-            SettingsScreen(navController = navController)
+            composable(Screen.Settings.route) {
+                SettingsScreen(navController = navController)
+            }
         }
     }
 }
