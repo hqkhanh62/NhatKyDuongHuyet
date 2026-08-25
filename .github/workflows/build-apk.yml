@@ -2,9 +2,14 @@ name: Build Android APK
 
 on:
   push:
-    branches: [ "master" ]
+    branches:
+      - master
+      - agent/preserve-room-data
   pull_request:
-    branches: [ "master" ]
+    branches:
+      - master
+      - agent/preserve-room-data
+  workflow_dispatch:  # Cho phép chạy thủ công
 
 jobs:
   build:
