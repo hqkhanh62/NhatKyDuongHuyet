@@ -8,19 +8,24 @@
     android:padding="8dp">
 
     <TextView
-        android:id="@+id/widget_title"
+        android:id="@+id/widget_date"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Đường huyết"
         android:textColor="#FFFFFF"
         android:textSize="12sp" />
 
     <TextView
-        android:id="@+id/widget_value"
+        android:id="@+id/widget_avg"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="-- mmol/L"
         android:textColor="#FFFFFF"
         android:textSize="20sp"
         android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/widget_count"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textColor="#FFFFFF"
+        android:textSize="12sp" />
 </LinearLayout>
