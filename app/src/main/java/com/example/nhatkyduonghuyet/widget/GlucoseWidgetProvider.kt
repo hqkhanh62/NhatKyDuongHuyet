@@ -8,35 +8,52 @@ import android.content.Intent
 import android.widget.RemoteViews
 import com.example.nhatkyduonghuyet.MainActivity
 import com.example.nhatkyduonghuyet.R
+import dagger.hilt.android.AndroidEntryPoint
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
+@AndroidEntryPoint
 class GlucoseWidgetProvider : AppWidgetProvider() {
+
     override fun onUpdate(
         context: Context,
         appWidgetManager: AppWidgetManager,
         appWidgetIds: IntArray
     ) {
+        super.onUpdate(context, appWidgetManager, appWidgetIds)
         for (appWidgetId in appWidgetIds) {
             updateAppWidget(context, appWidgetManager, appWidgetId)
         }
     }
 
-    private fun updateAppWidget(
-        context: Context,
-        appWidgetManager: AppWidgetManager,
-        appWidgetId: Int) {
-        
-        val views = RemoteViews(context.packageName, R.layout.glucose_widget)
-        
-        // Cài đặt click để mở app
-        val intent = Intent(context, MainActivity::class.java)
-        val pendingIntent = PendingIntent.getActivity(context, 0, intent, PendingIntent.FLAG_IMMUTABLE)
-        views.setOnClickPendingIntent(R.id.widget_container, pendingIntent)
+    companion object {
+        fun updateAppWidget(
+            context: Context,
+            appWidgetManager: AppWidgetManager,
+            appWidgetId: Int
+        ) {
+            val views = RemoteViews(context.packageName, R.layout.glucose_widget)
 
-        // Ở đây có thể lấy dữ liệu mới nhất từ database nếu muốn, 
-        // nhưng đơn giản nhất là chỉ dẫn tới app hoặc hiển thị text mặc định.
-        views.setTextViewText(R.id.widget_title, "Đường huyết")
-        views.setTextViewText(R.id.widget_value, "-- mmol/L")
+            val today = SimpleDateFormat("dd/MM", Locale.getDefault()).format(Date())
+            
+            views.setTextViewText(R.id.widget_date, today)
+            views.setTextViewText(R.id.widget_avg, "--")
+            views.setTextViewText(R.id.widget_count, "0 lần đo")
 
-        appWidgetManager.updateAppWidget(appWidgetId, views)
+            val intent = Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+            
+            val pendingIntent = PendingIntent.getActivity(
+                context, 
+                0, 
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            views.setOnClickPendingIntent(R.id.widget_container, pendingIntent)
+
+            appWidgetManager.updateAppWidget(appWidgetId, views)
+        }
     }
 }
