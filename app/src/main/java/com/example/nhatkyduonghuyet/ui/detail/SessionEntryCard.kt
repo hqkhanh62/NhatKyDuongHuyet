@@ -37,9 +37,11 @@ import java.util.Locale
 fun SessionEntryCard(
     sessionName: String,
     logEntryState: MutableState<LogEntry>,
+    scanner: GlucoseScanner,
     onSave: (LogEntry) -> Unit
 ) {
     var logEntry by logEntryState
+    var cameraField by remember { mutableStateOf<String?>(null) }
 
     var bgBeforeText by remember(logEntry.id, logEntry.session) {
         mutableStateOf(logEntry.bgBefore?.toString() ?: "")
@@ -161,7 +163,8 @@ fun SessionEntryCard(
                 },
                 label = "Đường huyết trước (mmol/L)",
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                onVoiceResult = { handleVoiceResult("bgBefore", it) }
+                onVoiceResult = { handleVoiceResult("bgBefore", it) },
+                onCameraClick = { cameraField = "bgBefore" }
             )
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -182,7 +185,8 @@ fun SessionEntryCard(
                 },
                 label = "Đường huyết sau (mmol/L)",
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                onVoiceResult = { handleVoiceResult("bgAfter", it) }
+                onVoiceResult = { handleVoiceResult("bgAfter", it) },
+                onCameraClick = { cameraField = "bgAfter" }
             )
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -196,7 +200,7 @@ fun SessionEntryCard(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            Button(
+                        Button(
                 onClick = { onSave(logEntry) },
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.buttonColors(containerColor = sessionColor)
@@ -205,4 +209,28 @@ fun SessionEntryCard(
             }
         }
     }
+
+    cameraField?.let { field ->
+        CameraScannerDialog(
+            scanner = scanner,
+            onDismiss = { cameraField = null },
+            onResult = { result ->
+                val updatedEntry = when (field) {
+                    "bgBefore" -> {
+                        bgBeforeText = result.value.toInputText()
+                        logEntry.copy(bgBefore = result.value.toDouble())
+                    }
+                    else -> {
+                        bgAfterText = result.value.toInputText()
+                        logEntry.copy(bgAfter = result.value.toDouble())
+                    }
+                }
+                logEntry = updatedEntry
+                onSave(updatedEntry)
+            }
+        )
+    }
 }
+
+private fun Float.toInputText(): String =
+    String.format(Locale.US, "%.1f", this)
