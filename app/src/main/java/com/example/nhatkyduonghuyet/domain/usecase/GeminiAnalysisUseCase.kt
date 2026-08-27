@@ -15,14 +15,14 @@ sealed interface CloudInsightResult {
 class GeminiAnalysisUseCase @Inject constructor() {
 
     private val generativeModel = GenerativeModel(
-        modelName = "gemini-1.5-flash",
-        apiKey = BuildConfig.GEMINI_API_KEY
+        modelName = MODEL_NAME,
+        apiKey = BuildConfig.GEMINI_API_KEY.trim()
     )
 
     suspend fun getAnalysis(historyData: String, forecastData: MultiStepResult?, isEnglish: Boolean = false): CloudInsightResult =
         withContext(Dispatchers.IO) {
-            val apiKey = BuildConfig.GEMINI_API_KEY
-            if (apiKey == "" || apiKey == "YOUR_GEMINI_API_KEY_HERE") {
+            val apiKey = BuildConfig.GEMINI_API_KEY.trim()
+            if (apiKey.isBlank() || apiKey == "YOUR_GEMINI_API_KEY_HERE") {
                 val errorMsg = if (isEnglish) "API Key not configured." else "Chưa cấu hình API Key cho Gemini."
                 return@withContext CloudInsightResult.Failure(errorMsg)
             }
@@ -71,7 +71,54 @@ class GeminiAnalysisUseCase @Inject constructor() {
                     CloudInsightResult.Failure(if (isEnglish) "Gemini returned no result." else "Gemini không trả về kết quả.")
                 }
             } catch (e: Exception) {
-                CloudInsightResult.Failure(if (isEnglish) "AI Connection Error: ${e.localizedMessage}" else "Lỗi kết nối Gemini: ${e.localizedMessage ?: "Vui lòng thử lại sau"}")
+                CloudInsightResult.Failure(friendlyError(e, isEnglish))
             }
         }
+
+    private fun friendlyError(error: Exception, isEnglish: Boolean): String {
+        val rawMessage = error.message.orEmpty()
+        return when {
+            rawMessage.contains("NOT_FOUND", ignoreCase = true) ||
+                rawMessage.contains("not found", ignoreCase = true) -> {
+                if (isEnglish) {
+                    "The Gemini model is currently unavailable. Please try again later."
+                } else {
+                    "Model Gemini hiện không khả dụng. Vui lòng thử lại sau."
+                }
+            }
+
+            rawMessage.contains("PERMISSION_DENIED", ignoreCase = true) ||
+                rawMessage.contains("API key", ignoreCase = true) ||
+                rawMessage.contains("401") ||
+                rawMessage.contains("403") -> {
+                if (isEnglish) {
+                    "Gemini API key is invalid or does not have access to this model."
+                } else {
+                    "API key Gemini không hợp lệ hoặc không có quyền dùng model này."
+                }
+            }
+
+            rawMessage.contains("RESOURCE_EXHAUSTED", ignoreCase = true) ||
+                rawMessage.contains("429") -> {
+                if (isEnglish) {
+                    "Gemini usage limit reached. Please try again later."
+                } else {
+                    "Gemini đã đạt giới hạn sử dụng. Vui lòng thử lại sau."
+                }
+            }
+
+            else -> {
+                if (isEnglish) {
+                    "Unable to connect to Gemini. Please check your network and try again."
+                } else {
+                    "Không thể kết nối Gemini. Hãy kiểm tra mạng và thử lại."
+                }
+            }
+        }
+    }
+
+    private companion object {
+        // Stable model supported by the current Gemini API.
+        const val MODEL_NAME = "gemini-2.5-flash"
+    }
 }
