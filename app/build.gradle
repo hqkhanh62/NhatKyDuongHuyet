@@ -19,7 +19,13 @@ if (localPropertiesFile.exists()) {
     localPropertiesFile.withInputStream { localProperties.load(it) }
 }
 
-def geminiApiKey = localProperties.getProperty("GEMINI_API_KEY") ?: System.getenv("GEMINI_API_KEY") ?: "YOUR_GEMINI_API_KEY_HERE"
+// Local-only credential. Never commit local.properties or pass this value to a release build.
+def geminiApiKey = localProperties.getProperty("GEMINI_API_KEY") ?: System.getenv("GEMINI_API_KEY") ?: ""
+def escapedGeminiApiKey = geminiApiKey
+        .replace("\\", "\\\\")
+        .replace("\"", "\\\"")
+        .replace("\r", "")
+        .replace("\n", "")
 
 android {
     namespace 'com.example.nhatkyduonghuyet'
@@ -32,7 +38,8 @@ android {
         versionCode 1
         versionName "1.0"
         
-        buildConfigField "String", "GEMINI_API_KEY", "\"${geminiApiKey}\""
+        // Keep the field available in every variant; release overrides it below.
+        buildConfigField "String", "GEMINI_API_KEY", "\"\""
     }
 
     buildTypes {
@@ -41,10 +48,16 @@ android {
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             signingConfig signingConfigs.debug // For now using debug config
+
+            // Never embed the development Gemini key in a release APK.
+            buildConfigField "String", "GEMINI_API_KEY", "\"\""
         }
         debug {
             minifyEnabled false
             shrinkResources false
+
+            // The key is available only in internally-built debug APKs.
+            buildConfigField "String", "GEMINI_API_KEY", "\"${escapedGeminiApiKey}\""
         }
     }
 
