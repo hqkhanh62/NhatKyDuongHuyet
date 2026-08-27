@@ -1,26 +1,40 @@
-*.iml
-.gradle
-/local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
-.DS_Store
-/build
-build/
-/build/
+# Gradle
+.gradle/
 **/build/
-app/build/
-captures/
-.externalNativeBuild
-.cxx
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+
+# Local machine configuration and secrets
 local.properties
-venv/
+*.jks
+*.keystore
+*.p12
+*.pem
+
+# Native build and generated files
+.externalNativeBuild/
+.cxx/
+.kotlin/
+
+# Build and release artifacts
 *.apk
+*.aab
+*.apks
+*.idsig
+mapping.txt
+
+# Test and IDE artifacts
+captures/
+*.hprof
+.DS_Store
+
+# Python/local tooling
+venv/
+__pycache__/
+*.pyc
+
+# Project-local temporary files
 dashboard_show.txt
 nâng cấp.txt
-
-# Ignore Gemini UseCase to protect API Key
-app/src/main/java/com/example/nhatkyduonghuyet/domain/usecase/GeminiAnalysisUseCase.kt
