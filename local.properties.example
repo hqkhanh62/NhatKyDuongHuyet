@@ -1,9 +1,18 @@
-# Copy this file to local.properties for local Android development.
-# Never commit local.properties or put a real API key in this example file.
+# Copy this file to local.properties for local development.
+# Never commit local.properties or put real passwords in this example file.
 
-# Android SDK path for your machine. Use forward slashes or escaped backslashes on Windows.
+# Android SDK path for your machine.
 # sdk.dir=C:/Users/<your-user>/AppData/Local/Android/Sdk
 
-# Development-only Gemini key. It will be embedded only in internal debug APKs.
-# Do not use this key in a public/release APK.
-GEMINI_API_KEY=
+# Production backend URL. This is configuration, not a Gemini provider secret.
+GEMINI_BACKEND_URL=https://api.example.com/api/gemini/insight
+
+# Optional local release signing values. Prefer CI secret variables for production.
+# RELEASE_STORE_FILE=/absolute/path/to/release-upload-key.jks
+# RELEASE_STORE_PASSWORD=
+# RELEASE_KEY_ALIAS=
+# RELEASE_KEY_PASSWORD=
+
+# Optional version overrides.
+# ANDROID_VERSION_CODE=1
+# ANDROID_VERSION_NAME=1.0.0
