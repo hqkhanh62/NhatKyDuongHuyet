@@ -64,7 +64,7 @@ class GeminiBackendClient @Inject constructor() {
                 connection.responseCode == HttpURLConnection.HTTP_UNAUTHORIZED -> {
                     GeminiBackendResult.Failure("UNAUTHORIZED")
                 }
-                connection.responseCode == HttpURLConnection.HTTP_TOO_MANY_REQUESTS -> {
+                connection.responseCode == HTTP_RATE_LIMITED -> {
                     GeminiBackendResult.Failure("RATE_LIMITED")
                 }
                 else -> {
@@ -101,5 +101,6 @@ class GeminiBackendClient @Inject constructor() {
     private companion object {
         const val CONNECT_TIMEOUT_MS = 10_000
         const val READ_TIMEOUT_MS = 20_000
+        const val HTTP_RATE_LIMITED = 429
     }
 }
