@@ -81,8 +81,13 @@ class GlucoseScanner @Inject constructor() {
         val candidates = visionText.textBlocks
             .flatMap { it.lines }
             .mapIndexedNotNull { index, line ->
-                val value = extractGlucose(line.text) ?: return@mapIndexedNotNull null
-                val context = line.text.lowercase()
+                // ML Kit may split a seven-segment reading into separate
+                // elements: ["5", ".", "7"]. Rebuild the line with spaces so
+                // the normalizer can recover both the decimal point and digit.
+                val elementText = line.elements.joinToString(" ") { it.text }
+                val lineText = elementText.ifBlank { line.text }
+                val value = extractGlucose(lineText) ?: return@mapIndexedNotNull null
+                val context = lineText.lowercase()
                 val boxHeight = line.boundingBox?.height() ?: 0
                 var score = boxHeight.coerceAtMost(1_000)
                 if (line.text.contains('.') || line.text.contains(',')) score += 180

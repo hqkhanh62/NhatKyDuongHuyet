@@ -19,6 +19,12 @@ class GlucoseScannerTest {
     }
 
     @Test
+    fun `accepts split seven segment decimal digits`() {
+        assertEquals(5.7f, scanner.extractGlucoseForTesting("5 7 mmol/L"))
+        assertEquals(10.1f, scanner.extractGlucoseForTesting("10 . 1 mmol/L"))
+    }
+
+    @Test
     fun `accepts seven segment space decimal`() {
         assertEquals(6.1f, scanner.extractGlucoseForTesting("Result 6 1 mmol/L"))
     }
