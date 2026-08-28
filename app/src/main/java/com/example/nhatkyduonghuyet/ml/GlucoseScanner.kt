@@ -35,7 +35,14 @@ class GlucoseScanner @Inject constructor() {
                 // Use spatial OCR lines first: the main seven-segment reading is
                 // much larger than DAY/AVG/date/time labels. Fall back to the
                 // text-only parser when ML Kit does not expose line geometry.
-                val value = extractGlucose(visionText) ?: extractGlucose(rawText)
+                val value = if (visionText.textBlocks.isEmpty()) {
+                    extractGlucose(rawText)
+                } else {
+                    // Do not fall back to the flattened full text when layout
+                    // exists: that path mixes display digits with DAY/AVG/date
+                    // labels and can turn 5.7 into another plausible number.
+                    extractGlucose(visionText)
+                }
                 if (value != null) {
                     onResult(
                         ScannedGlucoseResult(
@@ -134,6 +141,7 @@ class GlucoseScanner @Inject constructor() {
                 val rawValue = numericToken.toFloatOrNull() ?: return@forEach
                 val convertedValue = when {
                     hasMgUnit -> rawValue / MG_DL_PER_MMOL
+                    rawValue > 20f && !hasMmolUnit -> return@forEach
                     rawValue in MIN_GLUCOSE..MAX_GLUCOSE -> rawValue
                     else -> return@forEach
                 }
