@@ -42,12 +42,12 @@ class GlucoseScannerTest {
     }
 
     @Test
-    fun `accepts 5.7 as a normal mmol value`() {
+    fun `accepts 5 point 7 as a normal mmol value`() {
         assertEquals(5.7f, scanner.extractGlucoseForTesting("5.7 mmol/L"))
     }
 
     @Test
-    fun `rejects suspicious 28 without explicit mmol unit`() {
+    fun `rejects suspicious 28 point 0 without explicit mmol unit`() {
         assertNull(scanner.extractGlucoseForTesting("28.0"))
     }
 
