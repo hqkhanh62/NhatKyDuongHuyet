@@ -17,8 +17,11 @@ data class ScannedGlucoseResult(
 @Singleton
 class GlucoseScanner @Inject constructor() {
 
-    private val recognizer: TextRecognizer =
+    // Initialize ML Kit only when a real camera frame is processed.
+    // This keeps the pure OCR parser usable from JVM unit tests.
+    private val recognizer: TextRecognizer by lazy {
         TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+    }
 
     fun processImage(
         image: InputImage,
