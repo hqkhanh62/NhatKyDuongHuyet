@@ -41,6 +41,7 @@ import androidx.core.content.ContextCompat
 import com.example.nhatkyduonghuyet.ml.GlucoseScanner
 import com.example.nhatkyduonghuyet.ml.ScannedGlucoseResult
 import com.google.mlkit.vision.common.InputImage
+import java.util.ArrayDeque
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -59,6 +60,9 @@ fun CameraScannerDialog(
     val isProcessing = remember { AtomicBoolean(false) }
     val hasDeliveredResult = remember { AtomicBoolean(false) }
     val lastAttemptAt = remember { AtomicLong(0L) }
+    // Keep this window scoped to the current dialog. A new scan must not reuse
+    // a value obtained by a previous camera session.
+    val recentValues = remember { ArrayDeque<Float>() }
     var permissionGranted by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
@@ -162,9 +166,20 @@ fun CameraScannerDialog(
                                                 onResult = { result ->
                                                     isProcessing.set(false)
                                                     imageProxy.close()
-                                                    if (result != null && hasDeliveredResult.compareAndSet(false, true)) {
-                                                        resultDelivered = true
-                                                        onResult(result)
+                                                    if (result != null && !hasDeliveredResult.get()) {
+                                                        val stableValue = synchronized(recentValues) {
+                                                            recentValues.addLast(result.value)
+                                                            while (recentValues.size > STABILITY_WINDOW_SIZE) {
+                                                                recentValues.removeFirst()
+                                                            }
+                                                            findStableValue(recentValues)
+                                                        }
+
+                                                        if (stableValue != null &&
+                                                            hasDeliveredResult.compareAndSet(false, true)) {
+                                                            resultDelivered = true
+                                                            onResult(result.copy(value = stableValue))
+                                                        }
                                                     }
                                                 },
                                                 onError = {
@@ -226,3 +241,13 @@ fun CameraScannerDialog(
 
 private const val ANALYSIS_INTERVAL_MS = 250L
 private const val SCAN_FEEDBACK_TIMEOUT_MS = 8_000L
+private const val STABILITY_WINDOW_SIZE = 4
+private const val STABILITY_REQUIRED_MATCHES = 3
+private const val STABILITY_TOLERANCE = 0.15f
+
+private fun findStableValue(values: ArrayDeque<Float>): Float? {
+    if (values.size < STABILITY_REQUIRED_MATCHES) return null
+    val latest = values.peekLast()
+    val matches = values.count { kotlin.math.abs(it - latest) <= STABILITY_TOLERANCE }
+    return if (matches >= STABILITY_REQUIRED_MATCHES) latest else null
+}
