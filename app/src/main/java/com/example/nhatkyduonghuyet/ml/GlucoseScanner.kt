@@ -89,9 +89,14 @@ class GlucoseScanner @Inject constructor() {
             val after = normalizedText.substring(end, minOf(normalizedText.length, end + 5))
             val beforeTrimmed = before.trimEnd()
             val afterTrimmed = after.trimStart()
-            if (beforeTrimmed.endsWith(':') || afterTrimmed.startsWith(':') ||
-                beforeTrimmed.endsWith('/') || afterTrimmed.startsWith('/') ||
-                beforeTrimmed.endsWith('-') || afterTrimmed.startsWith('-')) {
+            val beforeSeparatorHasDigit = beforeTrimmed.dropLast(1).lastOrNull()?.isDigit() == true
+            val afterSeparatorHasDigit = afterTrimmed.drop(1).firstOrNull()?.isDigit() == true
+            if ((beforeTrimmed.endsWith(':') && beforeSeparatorHasDigit) ||
+                (afterTrimmed.startsWith(':') && afterSeparatorHasDigit) ||
+                (beforeTrimmed.endsWith('/') && beforeSeparatorHasDigit) ||
+                (afterTrimmed.startsWith('/') && afterSeparatorHasDigit) ||
+                (beforeTrimmed.endsWith('-') && beforeSeparatorHasDigit) ||
+                (afterTrimmed.startsWith('-') && afterSeparatorHasDigit)) {
                 return@mapNotNull null
             }
 
