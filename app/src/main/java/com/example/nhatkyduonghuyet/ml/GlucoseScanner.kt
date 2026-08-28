@@ -53,46 +53,54 @@ class GlucoseScanner @Inject constructor() {
     )
 
     /**
-     * Extracts a plausible mmol/L value from common meter output formats:
-     * 6.1, 6,1, 110 mg/dL and 110 (converted to 6.1 mmol/L when no unit is read).
+     * Extracts a plausible glucose value from common meter output formats:
+     * 6.1, 6,1, 6 1, 110 mg/dL and 110 mg/dl.
+     *
+     * A number greater than 30 is not converted without an explicit mg/dL
+     * context. This avoids turning an OCR error such as "81" into 4.5 mmol/L.
      */
     private fun extractGlucose(text: String): Float? {
         if (text.isBlank()) return null
 
-        val normalizedText = Regex("""(\d)\s*[.,]\s*(\d)""")
-            .replace(
-                text
-                    .replace('O', '0')
-                    .replace('o', '0')
-                    .replace('I', '1')
-                    .replace('l', '1')
-                    .replace(',', '.')
-            ) { match -> "${match.groupValues[1]}.${match.groupValues[2]}" }
-
+        val normalizedText = normalizeOcrText(text)
         val numberRegex = Regex("(?<![0-9])([0-9]{1,3}(?:\\.[0-9]{1,2})?)(?![0-9])")
+        val dateRanges = Regex("\\b[0-9]{1,4}[/\\-][0-9]{1,2}(?:[/\\-][0-9]{1,4})?\\b")
+            .findAll(normalizedText)
+            .map { it.range }
+            .toList()
+
         val candidates = numberRegex.findAll(normalizedText).mapNotNull { match ->
             val rawValue = match.groupValues[1].toFloatOrNull() ?: return@mapNotNull null
             val start = match.range.first
             val end = match.range.last + 1
 
-            // Do not treat a date, clock value or a number embedded in a unit as glucose.
-            val before = normalizedText.substring(maxOf(0, start - 3), start)
-            val after = normalizedText.substring(end, minOf(normalizedText.length, end + 5))
-            if (before.contains(':') || after.startsWith(':') || before.endsWith('/') ||
-                after.startsWith('/') || before.endsWith('-') || after.startsWith('-')) {
+            // Exclude candidates that are part of a date such as 20/08/2026.
+            if (dateRanges.any { it.first <= start && it.last + 1 >= end }) {
                 return@mapNotNull null
             }
 
-            val contextStart = maxOf(0, start - 24)
-            val contextEnd = minOf(normalizedText.length, end + 24)
-            val context = normalizedText.substring(contextStart, contextEnd).lowercase()
-            val hasMmolUnit = context.contains("mmol") || context.contains("mmol/l")
-            val hasMgUnit = context.contains("mg") || context.contains("mg/dl")
+            val before = normalizedText.substring(maxOf(0, start - 3), start)
+            val after = normalizedText.substring(end, minOf(normalizedText.length, end + 5))
+            if (before.contains(':') || after.startsWith(':') ||
+                before.endsWith('/') || after.startsWith('/') ||
+                before.endsWith('-') || after.startsWith('-')) {
+                return@mapNotNull null
+            }
+
+            val lineStart = normalizedText.lastIndexOf('\n', start - 1).let { if (it < 0) 0 else it + 1 }
+            val lineEnd = normalizedText.indexOf('\n', end).let { if (it < 0) normalizedText.length else it }
+            val lineContext = normalizedText.substring(lineStart, lineEnd).lowercase()
+            val contextStart = maxOf(0, start - 18)
+            val contextEnd = minOf(normalizedText.length, end + 18)
+            val nearbyContext = normalizedText.substring(contextStart, contextEnd).lowercase()
+
+            val hasMmolUnit = lineContext.contains("mmol") || nearbyContext.contains("mmol")
+            val hasMgUnit = lineContext.contains("mg") || nearbyContext.contains("mg/dl")
 
             val convertedValue = when {
                 hasMgUnit -> rawValue / MG_DL_PER_MMOL
-                rawValue > MAX_MMOL_WITHOUT_UNIT -> rawValue / MG_DL_PER_MMOL
-                else -> rawValue
+                rawValue in MIN_GLUCOSE..MAX_GLUCOSE -> rawValue
+                else -> return@mapNotNull null
             }
 
             if (convertedValue !in MIN_GLUCOSE..MAX_GLUCOSE) {
@@ -101,9 +109,11 @@ class GlucoseScanner @Inject constructor() {
 
             var score = 0
             if (hasMmolUnit) score += 100
-            if (hasMgUnit || rawValue > MAX_MMOL_WITHOUT_UNIT) score += 80
-            if (rawValue % 1f != 0f) score += 20
+            if (hasMgUnit) score += 90
+            if (rawValue % 1f != 0f) score += 25
             if (convertedValue in 3f..20f) score += 10
+            if (lineContext.contains("glucose") || lineContext.contains("sugar")) score += 20
+            if (lineContext.contains("result") || lineContext.contains("value")) score += 10
 
             GlucoseCandidate(convertedValue, score, start)
         }.toList()
@@ -112,6 +122,38 @@ class GlucoseScanner @Inject constructor() {
             .sortedWith(compareByDescending<GlucoseCandidate> { it.score }.thenBy { it.position })
             .firstOrNull()
             ?.value
+    }
+
+    /**
+     * Makes common OCR errors deterministic before numeric parsing.
+     * Delimiter normalization is intentionally conservative: a blank is
+     * treated as a decimal separator only when followed by a unit or EOL.
+     */
+    private fun normalizeOcrText(text: String): String {
+        var normalized = text
+            .replace('\u00A0', ' ')
+            .replace('٫', '.')
+            .replace('，', '.')
+            .replace('O', '0')
+            .replace('o', '0')
+            .replace('I', '1')
+            .replace('l', '1')
+            .replace('|', '1')
+            .replace(',', '.')
+
+        // 6 , 1 / 6 . 1 -> 6.1, including spaces around the delimiter.
+        normalized = Regex("(?<=\\d)\\s*[.]\\s*(?=\\d)")
+            .replace(normalized, ".")
+
+        // Some seven-segment displays produce "6 1 mmol/L".
+        normalized = Regex(
+            "(?<!\\d)(\\d{1,2})\\s+(\\d)(?=\\s*(?:mmol|mg(?:/\\s*dl)?|$))",
+            RegexOption.IGNORE_CASE
+        ).replace(normalized, "$1.$2")
+
+        return normalized
+            .replace(Regex("[ \\t]+"), " ")
+            .trim()
     }
 
     private fun extractTime(text: String): String? {
@@ -159,10 +201,12 @@ class GlucoseScanner @Inject constructor() {
         }
     }
 
+    /** Visible to JVM tests without exposing parsing internals to production callers. */
+    internal fun extractGlucoseForTesting(text: String): Float? = extractGlucose(text)
+
     private companion object {
         const val MG_DL_PER_MMOL = 18.0f
         const val MIN_GLUCOSE = 2.0f
         const val MAX_GLUCOSE = 30.0f
-        const val MAX_MMOL_WITHOUT_UNIT = 30.0f
     }
 }
