@@ -1,6 +1,7 @@
 package com.example.nhatkyduonghuyet.ml
 
 import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.Text
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.TextRecognizer
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
@@ -31,7 +32,10 @@ class GlucoseScanner @Inject constructor() {
         recognizer.process(image)
             .addOnSuccessListener { visionText ->
                 val rawText = visionText.text
-                val value = extractGlucose(rawText)
+                // Use spatial OCR lines first: the main seven-segment reading is
+                // much larger than DAY/AVG/date/time labels. Fall back to the
+                // text-only parser when ML Kit does not expose line geometry.
+                val value = extractGlucose(visionText) ?: extractGlucose(rawText)
                 if (value != null) {
                     onResult(
                         ScannedGlucoseResult(
@@ -54,6 +58,39 @@ class GlucoseScanner @Inject constructor() {
         val score: Int,
         val position: Int
     )
+
+    private data class SpatialGlucoseCandidate(
+        val value: Float,
+        val score: Int,
+        val position: Int
+    )
+
+    /**
+     * Selects the largest plausible numeric line from ML Kit's layout tree.
+     * This prevents small `DAY`, `AVG`, date and time digits from winning over
+     * the large central display value.
+     */
+    private fun extractGlucose(visionText: Text): Float? {
+        val candidates = visionText.textBlocks
+            .flatMap { it.lines }
+            .mapIndexedNotNull { index, line ->
+                val value = extractGlucose(line.text) ?: return@mapIndexedNotNull null
+                val context = line.text.lowercase()
+                val boxHeight = line.boundingBox?.height() ?: 0
+                var score = boxHeight.coerceAtMost(1_000)
+                if (line.text.contains('.') || line.text.contains(',')) score += 180
+                if (context.contains("mmol") || context.contains("mg")) score += 300
+                if (context.contains("day") || context.contains("avg") ||
+                    context.contains("date") || context.contains("time") ||
+                    context.contains("mem")) score -= 500
+                SpatialGlucoseCandidate(value, score, index)
+            }
+
+        return candidates
+            .sortedWith(compareByDescending<SpatialGlucoseCandidate> { it.score }.thenBy { it.position })
+            .firstOrNull()
+            ?.value
+    }
 
     /**
      * Extracts a plausible glucose value from common meter output formats:
