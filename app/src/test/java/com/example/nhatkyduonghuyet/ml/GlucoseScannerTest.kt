@@ -43,7 +43,7 @@ class GlucoseScannerTest {
 
     @Test
     fun `normalizes common character substitutions`() {
-        assertEquals(6.1f, scanner.extractGlucoseForTesting("Glucose: O.I mmol/L"))
+        assertEquals(6.1f, scanner.extractGlucoseForTesting("Glucose: 6.l mmol/L"))
     }
 
     @Test

@@ -66,14 +66,17 @@ class GlucoseScanner @Inject constructor() {
         if (text.isBlank()) return null
 
         val normalizedText = normalizeOcrText(text)
-        val numberRegex = Regex("(?<![0-9])([0-9]{1,3}(?:\\.[0-9]{1,2})?)(?![0-9])")
+        val numberRegex = Regex(
+            "(?<![0-9A-Za-z])([0-9OoQqIiLl|]{1,3}(?:\\.[0-9OoQqIiLl|]{1,2})?)(?![0-9A-Za-z])"
+        )
         val dateRanges = Regex("\\b[0-9]{1,4}[/\\-][0-9]{1,2}(?:[/\\-][0-9]{1,4})?\\b")
             .findAll(normalizedText)
             .map { it.range }
             .toList()
 
         val candidates = numberRegex.findAll(normalizedText).mapNotNull { match ->
-            val rawValue = match.groupValues[1].toFloatOrNull() ?: return@mapNotNull null
+            val numericToken = normalizeNumericToken(match.groupValues[1])
+            val rawValue = numericToken.toFloatOrNull() ?: return@mapNotNull null
             val start = match.range.first
             val end = match.range.last + 1
 
@@ -137,11 +140,6 @@ class GlucoseScanner @Inject constructor() {
             .replace('\u00A0', ' ')
             .replace('٫', '.')
             .replace('，', '.')
-            .replace('O', '0')
-            .replace('o', '0')
-            .replace('I', '1')
-            .replace('l', '1')
-            .replace('|', '1')
             .replace(',', '.')
 
         // 6 , 1 / 6 . 1 -> 6.1, including spaces around the delimiter.
@@ -158,6 +156,13 @@ class GlucoseScanner @Inject constructor() {
             .replace(Regex("[ \\t]+"), " ")
             .trim()
     }
+
+    private fun normalizeNumericToken(token: String): String = token
+        .replace('O', '0', ignoreCase = true)
+        .replace('Q', '0', ignoreCase = true)
+        .replace('I', '1', ignoreCase = true)
+        .replace('L', '1', ignoreCase = true)
+        .replace('|', '1')
 
     private fun extractTime(text: String): String? {
         val timeRegex = Regex("\\b([01]?\\d|2[0-3]):([0-5]\\d)\\b")
