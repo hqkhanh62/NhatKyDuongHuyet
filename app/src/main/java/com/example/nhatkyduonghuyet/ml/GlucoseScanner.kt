@@ -65,71 +65,59 @@ class GlucoseScanner @Inject constructor() {
     private fun extractGlucose(text: String): Float? {
         if (text.isBlank()) return null
 
-        val normalizedText = normalizeOcrText(text)
         val numberRegex = Regex(
             "(?<![0-9A-Za-z])([0-9OoQqIiLl|]{1,3}(?:\\.[0-9OoQqIiLl|]{1,2})?)(?![0-9A-Za-z])"
         )
-        val dateRanges = Regex("\\b[0-9]{1,4}[/\\-][0-9]{1,2}(?:[/\\-][0-9]{1,4})?\\b")
-            .findAll(normalizedText)
-            .map { it.range }
-            .toList()
+        val dateOrTimeRegex = Regex(
+            "\\b[0-9]{1,4}[/\\-][0-9]{1,2}(?:[/\\-][0-9]{1,4})?\\b|" +
+                "\\b(?:[01]?\\d|2[0-3]):[0-5]\\d\\b"
+        )
+        val candidates = mutableListOf<GlucoseCandidate>()
+        var absolutePosition = 0
 
-        val candidates = numberRegex.findAll(normalizedText).mapNotNull { match ->
-            val numericToken = normalizeNumericToken(match.groupValues[1])
-            val rawValue = numericToken.toFloatOrNull() ?: return@mapNotNull null
-            val start = match.range.first
-            val end = match.range.last + 1
+        normalizeOcrText(text).lineSequence().forEach { line ->
+            val lineContext = line.lowercase()
+            val hasMmolUnit = lineContext.contains("mmol")
+            val hasMgUnit = lineContext.contains("mg")
+            val hasGlucoseLabel = lineContext.contains("glucose") ||
+                lineContext.contains("sugar") ||
+                lineContext.contains("result") ||
+                lineContext.contains("value")
 
-            // Exclude candidates that are part of a date such as 20/08/2026.
-            if (dateRanges.any { it.first <= start && it.last + 1 >= end }) {
-                return@mapNotNull null
+            // Date/time rows are noise unless the same row explicitly identifies
+            // a glucose value or unit.
+            val isDateOrTimeRow = dateOrTimeRegex.containsMatchIn(line)
+            if (isDateOrTimeRow && !hasGlucoseLabel && !hasMmolUnit && !hasMgUnit) {
+                absolutePosition += line.length + 1
+                return@forEach
             }
 
-            val before = normalizedText.substring(maxOf(0, start - 3), start)
-            val after = normalizedText.substring(end, minOf(normalizedText.length, end + 5))
-            val beforeTrimmed = before.trimEnd()
-            val afterTrimmed = after.trimStart()
-            val beforeSeparatorHasDigit = beforeTrimmed.dropLast(1).lastOrNull()?.isDigit() == true
-            val afterSeparatorHasDigit = afterTrimmed.drop(1).firstOrNull()?.isDigit() == true
-            if ((beforeTrimmed.endsWith(':') && beforeSeparatorHasDigit) ||
-                (afterTrimmed.startsWith(':') && afterSeparatorHasDigit) ||
-                (beforeTrimmed.endsWith('/') && beforeSeparatorHasDigit) ||
-                (afterTrimmed.startsWith('/') && afterSeparatorHasDigit) ||
-                (beforeTrimmed.endsWith('-') && beforeSeparatorHasDigit) ||
-                (afterTrimmed.startsWith('-') && afterSeparatorHasDigit)) {
-                return@mapNotNull null
+            numberRegex.findAll(line).forEach { match ->
+                val numericToken = normalizeNumericToken(match.groupValues[1])
+                val rawValue = numericToken.toFloatOrNull() ?: return@forEach
+                val convertedValue = when {
+                    hasMgUnit -> rawValue / MG_DL_PER_MMOL
+                    rawValue in MIN_GLUCOSE..MAX_GLUCOSE -> rawValue
+                    else -> return@forEach
+                }
+
+                if (convertedValue !in MIN_GLUCOSE..MAX_GLUCOSE) return@forEach
+
+                var score = 0
+                if (hasMmolUnit) score += 100
+                if (hasMgUnit) score += 90
+                if (rawValue % 1f != 0f) score += 25
+                if (convertedValue in 3f..20f) score += 10
+                if (hasGlucoseLabel) score += 20
+
+                candidates += GlucoseCandidate(
+                    value = convertedValue,
+                    score = score,
+                    position = absolutePosition + match.range.first
+                )
             }
-
-            val lineStart = normalizedText.lastIndexOf('\n', start - 1).let { if (it < 0) 0 else it + 1 }
-            val lineEnd = normalizedText.indexOf('\n', end).let { if (it < 0) normalizedText.length else it }
-            val lineContext = normalizedText.substring(lineStart, lineEnd).lowercase()
-            val contextStart = maxOf(0, start - 18)
-            val contextEnd = minOf(normalizedText.length, end + 18)
-            val nearbyContext = normalizedText.substring(contextStart, contextEnd).lowercase()
-
-            val hasMmolUnit = lineContext.contains("mmol") || nearbyContext.contains("mmol")
-            val hasMgUnit = lineContext.contains("mg") || nearbyContext.contains("mg/dl")
-
-            val convertedValue = when {
-                hasMgUnit -> rawValue / MG_DL_PER_MMOL
-                rawValue in MIN_GLUCOSE..MAX_GLUCOSE -> rawValue
-                else -> return@mapNotNull null
-            }
-
-            if (convertedValue !in MIN_GLUCOSE..MAX_GLUCOSE) {
-                return@mapNotNull null
-            }
-
-            var score = 0
-            if (hasMmolUnit) score += 100
-            if (hasMgUnit) score += 90
-            if (rawValue % 1f != 0f) score += 25
-            if (convertedValue in 3f..20f) score += 10
-            if (lineContext.contains("glucose") || lineContext.contains("sugar")) score += 20
-            if (lineContext.contains("result") || lineContext.contains("value")) score += 10
-
-            GlucoseCandidate(convertedValue, score, start)
-        }.toList()
+            absolutePosition += line.length + 1
+        }
 
         return candidates
             .sortedWith(compareByDescending<GlucoseCandidate> { it.score }.thenBy { it.position })
