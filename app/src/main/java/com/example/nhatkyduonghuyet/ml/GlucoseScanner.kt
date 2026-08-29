@@ -1,5 +1,6 @@
 package com.example.nhatkyduonghuyet.ml
 
+import android.graphics.Bitmap
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.Text
 import com.google.mlkit.vision.text.TextRecognition
@@ -7,12 +8,14 @@ import com.google.mlkit.vision.text.TextRecognizer
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.math.abs
 
 /** Result extracted from a glucose meter display. */
 data class ScannedGlucoseResult(
     val value: Float,
     val date: String? = null,
-    val time: String? = null
+    val time: String? = null,
+    val source: String = "ML_KIT"
 )
 
 @Singleton
@@ -20,6 +23,7 @@ class GlucoseScanner @Inject constructor() {
 
     // Initialize ML Kit only when a real camera frame is processed.
     // This keeps the pure OCR parser usable from JVM unit tests.
+    private val pixelReader = PixelGlucoseReader()
     private val recognizer: TextRecognizer by lazy {
         TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
     }
@@ -48,7 +52,8 @@ class GlucoseScanner @Inject constructor() {
                         ScannedGlucoseResult(
                             value = value,
                             date = extractDate(rawText),
-                            time = extractTime(rawText)
+                            time = extractTime(rawText),
+                            source = "ML_KIT"
                         )
                     )
                 } else {
@@ -58,6 +63,71 @@ class GlucoseScanner @Inject constructor() {
             .addOnFailureListener { error ->
                 onError(error)
             }
+    }
+
+    fun processHybrid(
+        fullBitmap: Bitmap,
+        rotationDegrees: Int,
+        onResult: (ScannedGlucoseResult?) -> Unit,
+        onError: (Exception) -> Unit
+    ) {
+        val rotated = ImageUtils.rotateBitmap(fullBitmap, rotationDegrees)
+        val displayRoi = ImageUtils.cropNormalized(rotated, ImageUtils.DISPLAY_ROI)
+        
+        // 1. Run Pixel Reader
+        val pixelResult = pixelReader.processDisplay(displayRoi)
+        
+        // 2. Run ML Kit
+        val inputImage = InputImage.fromBitmap(rotated, 0)
+        recognizer.process(inputImage)
+            .addOnSuccessListener { visionText ->
+                val rawText = visionText.text
+                val mlKitValue = extractGlucose(rawText)
+                
+                val finalResult = combineHybrid(pixelResult, mlKitValue, rawText)
+                onResult(finalResult)
+            }
+            .addOnFailureListener { error ->
+                // If ML Kit fails, we might still have pixel result
+                if (pixelResult != null && pixelResult.confidence >= 0.85f) {
+                    onResult(ScannedGlucoseResult(pixelResult.value, source = "PIXEL"))
+                } else {
+                    onError(error)
+                }
+            }
+    }
+
+    private fun combineHybrid(
+        pixel: PixelDisplayReading?,
+        mlKitValue: Float?,
+        rawText: String
+    ): ScannedGlucoseResult? {
+        // As per instructions: if pixel reader is confident and matches ML Kit (or ML Kit is null)
+        if (pixel != null && pixel.confidence >= 0.85f) {
+            if (mlKitValue == null || abs(pixel.value - mlKitValue) <= 0.15f) {
+                return ScannedGlucoseResult(
+                    value = pixel.value,
+                    date = extractDate(rawText),
+                    time = extractTime(rawText),
+                    source = "PIXEL"
+                )
+            }
+        }
+
+        // If they differ significantly, return null to prompt manual confirmation (or scanning again)
+        if (pixel != null && mlKitValue != null && abs(pixel.value - mlKitValue) > 0.15f) {
+            return null
+        }
+
+        // Fallback to ML Kit if available
+        return mlKitValue?.let {
+            ScannedGlucoseResult(
+                value = it,
+                date = extractDate(rawText),
+                time = extractTime(rawText),
+                source = "ML_KIT"
+            )
+        }
     }
 
     private data class GlucoseCandidate(
@@ -106,6 +176,7 @@ class GlucoseScanner @Inject constructor() {
 
     /**
      * Extracts a plausible glucose value from common meter output formats:
+     * Extracts a plausible glucose value from common meter output formats:
      * 6.1, 6,1, 6 1, 110 mg/dL and 110 mg/dl.
      *
      * A number greater than 30 is not converted without an explicit mg/dL
@@ -114,7 +185,7 @@ class GlucoseScanner @Inject constructor() {
     private fun extractGlucose(text: String): Float? {
         if (text.isBlank()) return null
 
-        val numberRegex = Regex(
+val numberRegex = Regex(
             "(?<![0-9A-Za-z])([0-9OoQqIiLl|]{1,3}(?:\\.[0-9OoQqIiLl|]{1,2})?)(?![0-9A-Za-z])"
         )
         val dateOrTimeRegex = Regex(
@@ -202,7 +273,7 @@ class GlucoseScanner @Inject constructor() {
             .trim()
     }
 
-    private fun normalizeNumericToken(token: String): String = token
+private fun normalizeNumericToken(token: String): String = token
         .replace('O', '0', ignoreCase = true)
         .replace('Q', '0', ignoreCase = true)
         .replace('I', '1', ignoreCase = true)

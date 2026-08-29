@@ -140,9 +140,7 @@ fun CameraScannerDialog(
                                     .also { analysis ->
                                         analysis.setAnalyzer(cameraExecutor) { imageProxy ->
                                             val now = System.currentTimeMillis()
-                                            val mediaImage = imageProxy.image
-                                            val shouldAnalyze = mediaImage != null &&
-                                                !hasDeliveredResult.get() &&
+                                            val shouldAnalyze = !hasDeliveredResult.get() &&
                                                 !isProcessing.get() &&
                                                 now - lastAttemptAt.get() >= ANALYSIS_INTERVAL_MS
 
@@ -157,12 +155,21 @@ fun CameraScannerDialog(
                                                 return@setAnalyzer
                                             }
 
-                                            val inputImage = InputImage.fromMediaImage(
-                                                mediaImage!!,
-                                                imageProxy.imageInfo.rotationDegrees
-                                            )
-                                            scanner.processImage(
-                                                inputImage,
+                                            val bitmap = try {
+                                                imageProxy.toBitmap()
+                                            } catch (e: Exception) {
+                                                null
+                                            }
+
+                                            if (bitmap == null) {
+                                                isProcessing.set(false)
+                                                imageProxy.close()
+                                                return@setAnalyzer
+                                            }
+
+                                            scanner.processHybrid(
+                                                bitmap,
+                                                imageProxy.imageInfo.rotationDegrees,
                                                 onResult = { result ->
                                                     isProcessing.set(false)
                                                     imageProxy.close()

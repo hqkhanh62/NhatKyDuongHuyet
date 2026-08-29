@@ -87,14 +87,15 @@ class PixelGlucoseReader {
 
     private fun readDigit(cell: Bitmap): SegmentReading? {
         val active = mutableSetOf<Segment>()
+        // Improved segment proportions based on seven-segment display standards
         val segments = mapOf(
-            Segment.A to RectF(0.2f, 0.05f, 0.8f, 0.15f),
-            Segment.B to RectF(0.85f, 0.15f, 0.95f, 0.45f),
-            Segment.C to RectF(0.85f, 0.55f, 0.95f, 0.85f),
-            Segment.D to RectF(0.2f, 0.85f, 0.8f, 0.95f),
-            Segment.E to RectF(0.05f, 0.55f, 0.15f, 0.85f),
-            Segment.F to RectF(0.05f, 0.15f, 0.15f, 0.45f),
-            Segment.G to RectF(0.2f, 0.45f, 0.8f, 0.55f)
+            Segment.A to RectF(0.20f, 0.08f, 0.80f, 0.18f),
+            Segment.B to RectF(0.82f, 0.15f, 0.95f, 0.45f),
+            Segment.C to RectF(0.82f, 0.55f, 0.95f, 0.85f),
+            Segment.D to RectF(0.20f, 0.82f, 0.80f, 0.92f),
+            Segment.E to RectF(0.05f, 0.55f, 0.18f, 0.85f),
+            Segment.F to RectF(0.05f, 0.15f, 0.18f, 0.45f),
+            Segment.G to RectF(0.20f, 0.45f, 0.80f, 0.55f)
         )
 
         for ((seg, rect) in segments) {
@@ -126,22 +127,32 @@ class PixelGlucoseReader {
         val right = (bitmap.width * rect.right).toInt().coerceIn(left + 1, bitmap.width)
         val bottom = (bitmap.height * rect.bottom).toInt().coerceIn(top + 1, bitmap.height)
 
+        // Calculate average luminance for simple adaptive thresholding
+        var totalLuminance = 0.0
+        val sampleCount = (right - left) * (bottom - top)
+        if (sampleCount <= 0) return 0f
+
+        for (y in top until bottom) {
+            for (x in left until right) {
+                val pixel = bitmap.getPixel(x, y)
+                totalLuminance += (Color.red(pixel) * 0.299 + Color.green(pixel) * 0.587 + Color.blue(pixel) * 0.114)
+            }
+        }
+        val avgLuminance = totalLuminance / sampleCount
+        val threshold = (avgLuminance * 0.85).coerceIn(40.0, 180.0)
+
         var darkCount = 0
-        var totalCount = 0
-        
-        // Thresholding: use a simple one for now
         for (y in top until bottom) {
             for (x in left until right) {
                 val pixel = bitmap.getPixel(x, y)
                 val luminance = (Color.red(pixel) * 0.299 + Color.green(pixel) * 0.587 + Color.blue(pixel) * 0.114)
-                if (luminance < 100) { // Dark pixel
+                if (luminance < threshold) {
                     darkCount++
                 }
-                totalCount++
             }
         }
         
-        return if (totalCount == 0) 0f else darkCount.toFloat() / totalCount
+        return darkCount.toFloat() / sampleCount
     }
 
     private fun calculateConfidence(expected: Set<Segment>, actual: Set<Segment>): Float {

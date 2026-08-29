@@ -206,9 +206,7 @@ fun ScannerScreen(
                                 .also { analysis ->
                                     analysis.setAnalyzer(cameraExecutor) { imageProxy ->
                                         val now = System.currentTimeMillis()
-                                        val mediaImage = imageProxy.image
-                                        val shouldAnalyze = mediaImage != null &&
-                                            !hasDetectedSuccess.get() &&
+                                        val shouldAnalyze = !hasDetectedSuccess.get() &&
                                             !isProcessing.get() &&
                                             now - lastAttemptAt.get() >= ANALYSIS_INTERVAL_MS
 
@@ -223,11 +221,21 @@ fun ScannerScreen(
                                             return@setAnalyzer
                                         }
 
-                                        scanner.processImage(
-                                            InputImage.fromMediaImage(
-                                                mediaImage!!,
-                                                imageProxy.imageInfo.rotationDegrees
-                                            ),
+                                        val bitmap = try {
+                                            imageProxy.toBitmap()
+                                        } catch (e: Exception) {
+                                            null
+                                        }
+
+                                        if (bitmap == null) {
+                                            isProcessing.set(false)
+                                            imageProxy.close()
+                                            return@setAnalyzer
+                                        }
+
+                                        scanner.processHybrid(
+                                            bitmap,
+                                            imageProxy.imageInfo.rotationDegrees,
                                             onResult = { result ->
                                                 isProcessing.set(false)
                                                 imageProxy.close()
