@@ -28,6 +28,7 @@ mapping.txt
 # Test and IDE artifacts
 captures/
 *.hprof
+hs_err_*.log
 .DS_Store
 
 # Python/local tooling
