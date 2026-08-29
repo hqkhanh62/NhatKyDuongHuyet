@@ -89,7 +89,7 @@ class GlucoseScanner @Inject constructor() {
             }
             .addOnFailureListener { error ->
                 // If ML Kit fails, we might still have pixel result
-                if (pixelResult != null && pixelResult.confidence >= 0.85f) {
+                if (pixelResult != null && pixelResult.confidence >= PIXEL_AUTHORITATIVE_CONFIDENCE) {
                     onResult(ScannedGlucoseResult(pixelResult.value, source = "PIXEL"))
                 } else {
                     onError(error)
@@ -103,8 +103,8 @@ class GlucoseScanner @Inject constructor() {
         rawText: String
     ): ScannedGlucoseResult? {
         // As per instructions: if pixel reader is confident and matches ML Kit (or ML Kit is null)
-        if (pixel != null && pixel.confidence >= 0.85f) {
-            if (mlKitValue == null || abs(pixel.value - mlKitValue) <= 0.15f) {
+        if (pixel != null && pixel.confidence >= PIXEL_AUTHORITATIVE_CONFIDENCE) {
+            if (mlKitValue == null || abs(pixel.value - mlKitValue) <= HYBRID_TOLERANCE) {
                 return ScannedGlucoseResult(
                     value = pixel.value,
                     date = extractDate(rawText),
@@ -115,7 +115,7 @@ class GlucoseScanner @Inject constructor() {
         }
 
         // If they differ significantly, return null to prompt manual confirmation (or scanning again)
-        if (pixel != null && mlKitValue != null && abs(pixel.value - mlKitValue) > 0.15f) {
+        if (pixel != null && mlKitValue != null && abs(pixel.value - mlKitValue) > HYBRID_TOLERANCE) {
             return null
         }
 
@@ -330,7 +330,5 @@ private fun normalizeNumericToken(token: String): String = token
 
     private companion object {
         const val MG_DL_PER_MMOL = 18.0f
-        const val MIN_GLUCOSE = 2.0f
-        const val MAX_GLUCOSE = 30.0f
     }
 }

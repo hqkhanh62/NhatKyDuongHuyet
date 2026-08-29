@@ -1,9 +1,7 @@
 package com.example.nhatkyduonghuyet.ml
 
 import android.graphics.Bitmap
-import android.graphics.Color
 import android.graphics.RectF
-import kotlin.math.abs
 
 data class PixelDisplayReading(
     val raw: String,
@@ -23,6 +21,11 @@ data class SegmentReading(
     val confidence: Float
 )
 
+/**
+ * Reads the seven-segment glucose value directly from display pixels.
+ * Pixels are sampled once from the ROI and the same array is reused for every
+ * region scan, avoiding per-pixel Bitmap calls on every segment.
+ */
 class PixelGlucoseReader {
 
     private val digitPatterns = listOf(
@@ -45,22 +48,11 @@ class PixelGlucoseReader {
     fun processDisplay(roi: Bitmap): PixelDisplayReading? {
         val width = roi.width
         val height = roi.height
-        
-        // Convert to grayscale and apply adaptive thresholding (simplified)
         val pixels = IntArray(width * height)
         roi.getPixels(pixels, 0, width, 0, 0, width, height)
-        
-        val gray = ByteArray(width * height)
-        for (i in pixels.indices) {
-            val p = pixels[i]
-            val r = (p shr 16) and 0xFF
-            val g = (p shr 8) and 0xFF
-            val b = p and 0xFF
-            gray[i] = ((r * 0.299 + g * 0.587 + b * 0.114).toInt()).toByte()
-        }
 
-        // Divide ROI into 3 potential digit cells and 1 decimal area
-        // These proportions are based on On Call Plus layout
+        // Divide ROI into 3 potential digit cells and 1 decimal area.
+        // These proportions are based on On Call Plus layout.
         val digitCells = listOf(
             // Digit 1 (Tens) - might be empty
             RectF(0.05f, 0.15f, 0.32f, 0.85f),
@@ -69,25 +61,27 @@ class PixelGlucoseReader {
             // Digit 3 (Decimals)
             RectF(0.68f, 0.15f, 0.95f, 0.85f)
         )
-        
+
         val readings = mutableListOf<SegmentReading>()
         for (cellRect in digitCells) {
-            val cellBitmap = cropRect(roi, cellRect)
-            val reading = readDigit(cellBitmap)
+            val reading = readDigit(pixels, width, height, cellRect)
             if (reading != null) {
                 readings.add(reading)
             }
         }
 
-        // Detect decimal point between digit 2 and 3
-        val decimalDetected = detectDecimalPoint(roi, RectF(0.62f, 0.75f, 0.68f, 0.90f))
+        // Detect decimal point between digit 2 and 3.
+        val decimalDetected = darkPixelRatio(
+            pixels, width, height,
+            RectF(0.62f, 0.75f, 0.68f, 0.90f)
+        ) > DECIMAL_POINT_THRESHOLD
 
         return combineDigits(readings, decimalDetected)
     }
 
-    private fun readDigit(cell: Bitmap): SegmentReading? {
+    private fun readDigit(pixels: IntArray, width: Int, height: Int, cell: RectF): SegmentReading? {
         val active = mutableSetOf<Segment>()
-        // Improved segment proportions based on seven-segment display standards
+        // Improved segment proportions based on seven-segment display standards.
         val segments = mapOf(
             Segment.A to RectF(0.20f, 0.08f, 0.80f, 0.18f),
             Segment.B to RectF(0.82f, 0.15f, 0.95f, 0.45f),
@@ -99,7 +93,16 @@ class PixelGlucoseReader {
         )
 
         for ((seg, rect) in segments) {
-            if (darkPixelRatio(cell, rect) >= 0.28f) {
+            // Segment rects are normalized within the cell; map them onto the ROI.
+            val cellWidth = cell.right - cell.left
+            val cellHeight = cell.bottom - cell.top
+            val absRect = RectF(
+                cell.left + rect.left * cellWidth,
+                cell.top + rect.top * cellHeight,
+                cell.left + rect.right * cellWidth,
+                cell.top + rect.bottom * cellHeight
+            )
+            if (darkPixelRatio(pixels, width, height, absRect) >= SEGMENT_ON_THRESHOLD) {
                 active.add(seg)
             }
         }
@@ -114,44 +117,46 @@ class PixelGlucoseReader {
         } ?: return null
 
         val confidence = calculateConfidence(best.on, active)
-        return if (confidence >= 0.70f) {
+        return if (confidence >= PIXEL_DIGIT_CONFIDENCE) {
             SegmentReading(best.digit, confidence)
         } else {
             null
         }
     }
 
-    private fun darkPixelRatio(bitmap: Bitmap, rect: RectF): Float {
-        val left = (bitmap.width * rect.left).toInt().coerceIn(0, bitmap.width - 1)
-        val top = (bitmap.height * rect.top).toInt().coerceIn(0, bitmap.height - 1)
-        val right = (bitmap.width * rect.right).toInt().coerceIn(left + 1, bitmap.width)
-        val bottom = (bitmap.height * rect.bottom).toInt().coerceIn(top + 1, bitmap.height)
+    /**
+     * Dark-pixel ratio inside a normalized rectangle of the pixel array.
+     * Uses the local average luminance as an adaptive threshold so dark
+     * seven-segment elements are recognized on both light and dark displays.
+     */
+    private fun darkPixelRatio(pixels: IntArray, width: Int, height: Int, rect: RectF): Float {
+        val left = (width * rect.left).toInt().coerceIn(0, width - 1)
+        val top = (height * rect.top).toInt().coerceIn(0, height - 1)
+        val right = (width * rect.right).toInt().coerceIn(left + 1, width)
+        val bottom = (height * rect.bottom).toInt().coerceIn(top + 1, height)
 
-        // Calculate average luminance for simple adaptive thresholding
-        var totalLuminance = 0.0
         val sampleCount = (right - left) * (bottom - top)
         if (sampleCount <= 0) return 0f
 
+        var totalLuminance = 0.0
         for (y in top until bottom) {
+            val rowOffset = y * width
             for (x in left until right) {
-                val pixel = bitmap.getPixel(x, y)
-                totalLuminance += (Color.red(pixel) * 0.299 + Color.green(pixel) * 0.587 + Color.blue(pixel) * 0.114)
+                totalLuminance += luminance(pixels[rowOffset + x])
             }
         }
-        val avgLuminance = totalLuminance / sampleCount
-        val threshold = (avgLuminance * 0.85).coerceIn(40.0, 180.0)
+        val threshold = (totalLuminance / sampleCount * 0.85).coerceIn(40.0, 180.0)
 
         var darkCount = 0
         for (y in top until bottom) {
+            val rowOffset = y * width
             for (x in left until right) {
-                val pixel = bitmap.getPixel(x, y)
-                val luminance = (Color.red(pixel) * 0.299 + Color.green(pixel) * 0.587 + Color.blue(pixel) * 0.114)
-                if (luminance < threshold) {
+                if (luminance(pixels[rowOffset + x]) < threshold) {
                     darkCount++
                 }
             }
         }
-        
+
         return darkCount.toFloat() / sampleCount
     }
 
@@ -161,16 +166,12 @@ class PixelGlucoseReader {
         return if (total == 0) 0f else correct.toFloat() / total
     }
 
-    private fun detectDecimalPoint(roi: Bitmap, rect: RectF): Boolean {
-        return darkPixelRatio(roi, rect) > 0.25f
-    }
-
     private fun combineDigits(digits: List<SegmentReading>, decimalDetected: Boolean): PixelDisplayReading? {
         if (digits.isEmpty()) return null
 
         val text = buildString {
             digits.forEachIndexed { index, reading ->
-                // For On Call Plus, decimal is usually before the last digit if there are 2 or 3 digits
+                // For On Call Plus, decimal is usually before the last digit if there are 2 or 3 digits.
                 if (decimalDetected && index == digits.size - 1) {
                     append('.')
                 }
@@ -179,21 +180,20 @@ class PixelGlucoseReader {
         }
 
         val value = text.toFloatOrNull() ?: return null
-        if (value !in 2.0f..30.0f) return null
+        if (value !in MIN_GLUCOSE..MAX_GLUCOSE) return null
 
         val confidence = digits.map { it.confidence }.average().toFloat()
-        return if (confidence >= 0.78f) {
+        return if (confidence >= PIXEL_READING_CONFIDENCE) {
             PixelDisplayReading(text, value, confidence)
         } else {
             null
         }
     }
 
-    private fun cropRect(source: Bitmap, rect: RectF): Bitmap {
-        val left = (source.width * rect.left).toInt().coerceIn(0, source.width - 1)
-        val top = (source.height * rect.top).toInt().coerceIn(0, source.height - 1)
-        val right = (source.width * rect.right).toInt().coerceIn(left + 1, source.width)
-        val bottom = (source.height * rect.bottom).toInt().coerceIn(top + 1, source.height)
-        return Bitmap.createBitmap(source, left, top, right - left, bottom - top)
+    private inline fun luminance(pixel: Int): Float {
+        val r = (pixel shr 16) and 0xFF
+        val g = (pixel shr 8) and 0xFF
+        val b = pixel and 0xFF
+        return r * 0.299f + g * 0.587f + b * 0.114f
     }
 }
