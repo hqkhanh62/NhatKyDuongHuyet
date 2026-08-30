@@ -35,6 +35,7 @@ hs_err_*.log
 venv/
 __pycache__/
 *.pyc
+.env
 
 # Project-local temporary files
 dashboard_show.txt
