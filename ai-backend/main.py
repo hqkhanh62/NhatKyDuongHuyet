@@ -22,7 +22,7 @@ from pydantic import BaseModel
 app = FastAPI(title="Blood Glucose AI Insight Backend")
 
 API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
-MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip()
+MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash").strip()
 
 BASE_PROMPT = (
     "You are a concise, empathetic assistant for a personal blood glucose diary. "
