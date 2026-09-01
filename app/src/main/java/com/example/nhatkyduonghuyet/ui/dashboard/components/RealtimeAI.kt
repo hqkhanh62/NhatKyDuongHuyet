@@ -108,9 +108,10 @@ fun RealtimePredictionCard(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            ms.hourlyForecasts.forEachIndexed { index, value ->
+                            ms.forecastPoints.forEachIndexed { index, value ->
+                                val hours = ((index + 1) * ms.timeStepMinutes) / 60
                                 ForecastPill(
-                                    label = "+${(index + 1) * 6}h",
+                                    label = "+${hours}h",
                                     value = value,
                                     modifier = Modifier.weight(1f)
                                 )

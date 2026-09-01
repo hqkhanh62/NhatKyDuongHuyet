@@ -1,8 +1,10 @@
 package com.example.nhatkyduonghuyet.ml
 
+import com.example.nhatkyduonghuyet.domain.GlucosePolicy
+
 /** Plausible glucose value range in mmol/L accepted from a meter display. */
-const val MIN_GLUCOSE = 2.0f
-const val MAX_GLUCOSE = 30.0f
+const val MIN_GLUCOSE = GlucosePolicy.MIN_GLUCOSE_MMOL
+const val MAX_GLUCOSE = GlucosePolicy.MAX_GLUCOSE_MMOL
 
 /** Darkness ratio that marks a seven-segment element as lit. */
 const val SEGMENT_ON_THRESHOLD = 0.28f

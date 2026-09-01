@@ -29,7 +29,7 @@
     <string name="ai_is_analyzing">AI is analyzing&#8230;</string>
     <string name="input_instruction">Enter readings to start AI prediction</string>
     <string name="input_parameters">Input Parameters</string>
-    <string name="fasting_label">Fasting Blood Glucose (2.0&#8211;25.0 mmol/L)</string>
+    <string name="fasting_label">Fasting Blood Glucose (2.0&#8211;30.0 mmol/L)</string>
     <string name="prediction_time">Prediction Time:</string>
     <string name="after_lunch">After Lunch</string>
     <string name="after_dinner">After Dinner</string>

@@ -29,7 +29,7 @@
     <string name="ai_is_analyzing">AI đang phân tích&#8230;</string>
     <string name="input_instruction">Nhập chỉ số để AI bắt đầu dự đoán</string>
     <string name="input_parameters">Thông số đầu vào</string>
-    <string name="fasting_label">Đường huyết lúc đói (2.0&#8211;25.0 mmol/L)</string>
+    <string name="fasting_label">Đường huyết lúc đói (2.0&#8211;30.0 mmol/L)</string>
     <string name="prediction_time">Thời điểm dự đoán:</string>
     <string name="after_lunch">Sau ăn trưa</string>
     <string name="after_dinner">Sau ăn chiều</string>

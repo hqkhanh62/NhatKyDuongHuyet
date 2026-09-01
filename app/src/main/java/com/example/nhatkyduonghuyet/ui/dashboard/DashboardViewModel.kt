@@ -343,7 +343,11 @@ class DashboardViewModel @Inject constructor(
         entries.asSequence()
             .filter { it.session != "AI Prediction" }
             .sortedWith(compareBy<LogEntry> { it.date }.thenBy { it.time ?: "" })
-            .mapNotNull { entry -> entry.bgBefore?.toFloat()?.takeIf(Normalizer::isValidGlucose) }
+            .flatMap { entry ->
+                listOfNotNull(entry.bgBefore, entry.bgAfter)
+                    .map { it.toFloat() }
+            }
+            .filter(Normalizer::isValidGlucose)
             .toList()
 
     private data class DashboardInput(

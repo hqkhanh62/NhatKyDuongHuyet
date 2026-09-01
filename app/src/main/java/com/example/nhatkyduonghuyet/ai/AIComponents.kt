@@ -1,9 +1,12 @@
 package com.example.nhatkyduonghuyet.ai
 
+import com.example.nhatkyduonghuyet.domain.GlucosePolicy
+import com.example.nhatkyduonghuyet.domain.GlucoseRiskLevel
+
 object Normalizer {
     // Keep these values aligned with train_realtime_lstm_v2.py.
     const val MIN_GLUCOSE_MMOL = 2.0f
-    const val MAX_GLUCOSE_MMOL = 25.0f
+    const val MAX_GLUCOSE_MMOL = 30.0f
     const val SEQUENCE_LENGTH = 5
 
     fun normalize(raw: FloatArray): FloatArray {
@@ -17,7 +20,7 @@ object Normalizer {
         (normalizedValue * (MAX_GLUCOSE_MMOL - MIN_GLUCOSE_MMOL)) + MIN_GLUCOSE_MMOL
 
     fun isValidGlucose(value: Float): Boolean =
-        value.isFinite() && value in MIN_GLUCOSE_MMOL..MAX_GLUCOSE_MMOL
+        GlucosePolicy.isValid(value)
 
     fun toLstmInput(raw: FloatArray): Array<Array<FloatArray>> {
         require(raw.size == SEQUENCE_LENGTH && raw.all(::isValidGlucose)) {
@@ -41,9 +44,10 @@ data class PredictionResult(
 )
 
 data class MultiStepResult(
-    val hourlyForecasts: List<Float>,
+    val forecastPoints: List<Float>,
     val maxExpected: Float,
-    val minExpected: Float
+    val minExpected: Float,
+    val timeStepMinutes: Int = 360 // Default to 6 hours
 )
 
 data class RealtimeForecast(
@@ -54,9 +58,10 @@ data class RealtimeForecast(
 object RiskDetector {
     fun detectRisk(mmolValue: Float): String {
         return when {
-            mmolValue < 4.0f -> "⚠ Low Sugar"
-            mmolValue > 10.0f -> "⚠ High Sugar"
-            else -> "✅ Normal"
+            mmolValue < GlucosePolicy.LOW_THRESHOLD -> GlucoseRiskLevel.LOW.label
+            mmolValue > GlucosePolicy.VERY_HIGH_THRESHOLD -> GlucoseRiskLevel.VERY_HIGH.label
+            mmolValue > GlucosePolicy.HIGH_THRESHOLD -> GlucoseRiskLevel.HIGH.label
+            else -> GlucoseRiskLevel.NORMAL.label
         }
     }
 }

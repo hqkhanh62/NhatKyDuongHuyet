@@ -24,8 +24,8 @@ class PredictGlucose @Inject constructor(
 
         if (glucoseValues.size < 5) return null
 
-        // Chạy dự báo thông qua bộ nạp mô hình LSTM
-        return when (val outcome = realtimePredictor.onNewGlucose(glucoseValues.last())) {
+        // Chạy dự báo stateless để đảm bảo tính deterministic
+        return when (val outcome = realtimePredictor.predictStateless(glucoseValues)) {
             is PredictionOutcome.Success -> outcome.value
             is PredictionOutcome.Failure -> null
         }

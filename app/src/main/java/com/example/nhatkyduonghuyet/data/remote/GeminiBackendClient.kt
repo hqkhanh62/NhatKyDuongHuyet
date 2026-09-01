@@ -93,9 +93,10 @@ class GeminiBackendClient @Inject constructor() {
     }
 
     private fun MultiStepResult.toJson(): JSONObject = JSONObject().apply {
-        put("hourlyForecasts", JSONArray(hourlyForecasts.toList()))
+        put("forecastPoints", JSONArray(forecastPoints.toList()))
         put("minExpected", minExpected)
         put("maxExpected", maxExpected)
+        put("timeStepMinutes", timeStepMinutes)
     }
 
     private companion object {

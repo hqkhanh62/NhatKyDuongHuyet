@@ -42,9 +42,21 @@ interface LogEntryDao {
     @Query("SELECT DISTINCT date FROM log_entries ORDER BY date DESC")
     fun getAllDates(): Flow<List<String>>
 
-    @Query("SELECT COUNT(*) as totalValid FROM log_entries")
+    @Query("SELECT COUNT(*) FROM log_entries WHERE (bgBefore IS NOT NULL OR bgAfter IS NOT NULL) AND session != 'AI Prediction'")
+    fun getTotalValidMeasurementsCount(): Flow<Int>
+
+    @Query("SELECT COUNT(*) as totalValid FROM log_entries WHERE (bgBefore IS NOT NULL OR bgAfter IS NOT NULL) AND session != 'AI Prediction'")
     fun getAdvancedStats(): Flow<AdvancedStatsEntity>
 
-    @Query("SELECT date, AVG(bgBefore) as averageValue FROM log_entries GROUP BY date")
+    @Query("""
+        SELECT date, AVG(glucose) as averageValue
+        FROM (
+            SELECT date, bgBefore as glucose FROM log_entries WHERE bgBefore IS NOT NULL AND session != 'AI Prediction'
+            UNION ALL
+            SELECT date, bgAfter as glucose FROM log_entries WHERE bgAfter IS NOT NULL AND session != 'AI Prediction'
+        )
+        GROUP BY date
+        ORDER BY date ASC
+    """)
     fun getDailyAverage(): Flow<List<DailyAvgRow>>
 }

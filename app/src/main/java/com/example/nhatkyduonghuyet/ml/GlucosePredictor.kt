@@ -34,7 +34,7 @@ class GlucosePredictor @Inject constructor(
     suspend fun predict(fasting: Float, type: Int): PredictionOutcome<Float> =
         withContext(Dispatchers.Default) {
             if (!Normalizer.isValidGlucose(fasting)) {
-                return@withContext PredictionOutcome.Failure("Nhập chỉ số từ 2.0 đến 25.0 mmol/L.")
+                return@withContext PredictionOutcome.Failure("Nhập chỉ số từ ${Normalizer.MIN_GLUCOSE_MMOL} đến ${Normalizer.MAX_GLUCOSE_MMOL} mmol/L.")
             }
             if (type !in 0..1) {
                 return@withContext PredictionOutcome.Failure("Thời điểm dự đoán không hợp lệ.")

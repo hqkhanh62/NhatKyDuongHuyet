@@ -1,19 +1,12 @@
-name: Auto Approve PRs
-
+# This workflow has been disabled for security reasons (P1-06).
+# Auto-approving PRs on production branches is a security risk.
+# Please use manual review and branch protection rules instead.
+name: Disabled Auto Approve
 on:
   pull_request:
-    types: [opened, reopened, synchronize]
-
+    branches: [ "master", "main" ]
 jobs:
-  auto-approve:
+  disabled:
     runs-on: ubuntu-latest
-    # Tự động phê duyệt cho hqkhanh62 và các Agent/Bots hệ thống
-    if: |
-      github.actor == 'hqkhanh62' || 
-      contains(github.actor, '[bot]') || 
-      contains(github.actor, 'agent')
     steps:
-      - name: Approve PR
-        uses: hmarr/auto-approve-action@v4
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - run: echo "Auto-approve is disabled."
