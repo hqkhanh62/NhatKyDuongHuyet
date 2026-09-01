@@ -98,5 +98,12 @@ fun AppNavHost(
         composable(GlucoseScreen.Prediction.route) {
             PredictionScreen(navController = navController, predictor = predictor)
         }
+        composable(GlucoseScreen.Medication.route) {
+            val medicationViewModel: com.example.nhatkyduonghuyet.viewmodel.MedicationViewModel = hiltViewModel()
+            com.example.nhatkyduonghuyet.ui.screens.MedicationScreen(
+                navController = navController,
+                viewModel = medicationViewModel
+            )
+        }
     }
 }

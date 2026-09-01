@@ -107,7 +107,8 @@ fun MainPagerScreen(
                     0 -> DashboardScreenPro(
                         onViewDetails = { scope.launch { pagerState.animateScrollToPage(1) } },
                         onNavigateToPrediction = { scope.launch { pagerState.animateScrollToPage(4) } },
-                        onNavigateToScanner = { navController.navigate(GlucoseScreen.Scanner.route) }
+                        onNavigateToScanner = { navController.navigate(GlucoseScreen.Scanner.route) },
+                        onNavigateToMedication = { navController.navigate(GlucoseScreen.Medication.route) }
                     )
                     1 -> DateListScreen(navController = navController, viewModel = viewModel)
                     2 -> ChartScreen(navController = navController, viewModel = viewModel)

@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.ui.res.stringResource
 import com.example.nhatkyduonghuyet.R
+import androidx.compose.material.icons.filled.MedicalServices
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -68,6 +69,7 @@ fun DashboardScreenPro(
     onViewDetails: () -> Unit,
     onNavigateToPrediction: () -> Unit,
     onNavigateToScanner: () -> Unit,
+    onNavigateToMedication: () -> Unit,
     viewModel: DashboardViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -83,6 +85,7 @@ fun DashboardScreenPro(
         onViewDetails = onViewDetails,
         onNavigateToPrediction = onNavigateToPrediction,
         onNavigateToScanner = onNavigateToScanner,
+        onNavigateToMedication = onNavigateToMedication,
         onExportPdf = { viewModel.exportToPdf(context) }
     )
 }
@@ -98,6 +101,7 @@ fun DashboardScreenProContent(
     onViewDetails: () -> Unit,
     onNavigateToPrediction: () -> Unit,
     onNavigateToScanner: () -> Unit,
+    onNavigateToMedication: () -> Unit,
     onExportPdf: () -> Unit = {}
 ) {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
@@ -126,6 +130,9 @@ fun DashboardScreenProContent(
                     )
                     IconButton(onClick = onExportPdf) {
                         Icon(Icons.Default.PictureAsPdf, stringResource(R.string.export_report), tint = MaterialTheme.colorScheme.primary)
+                    }
+                    IconButton(onClick = onNavigateToMedication) {
+                        Icon(Icons.Default.MedicalServices, stringResource(R.string.medication_title), tint = MaterialTheme.colorScheme.primary)
                     }
                     IconButton(onClick = onNavigateToScanner) {
                         Icon(Icons.Default.PhotoCamera, stringResource(R.string.scan), tint = MaterialTheme.colorScheme.primary)
@@ -307,7 +314,8 @@ fun DashboardProPreview() {
             onRequestCloudInsight = {},
             onViewDetails = {},
             onNavigateToPrediction = {},
-            onNavigateToScanner = {}
+            onNavigateToScanner = {},
+            onNavigateToMedication = {}
         )
     }
 }
