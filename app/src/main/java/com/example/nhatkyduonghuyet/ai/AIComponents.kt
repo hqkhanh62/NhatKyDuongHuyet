@@ -4,20 +4,25 @@ import com.example.nhatkyduonghuyet.domain.GlucosePolicy
 import com.example.nhatkyduonghuyet.domain.GlucoseRiskLevel
 
 object Normalizer {
-    // Keep these values aligned with train_realtime_lstm_v2.py.
+    // The ML model is trained with a fixed 2.0-25.0 mmol/L range
+    // (see CALIBRATION_MIN/MAX in train_realtime_lstm_v2.py), so the
+    // normalization/denormalization MUST use that same range. Values outside
+    // the display range (up to MAX_GLUCOSE_MMOL) are still accepted as valid
+    // input but are clamped by normalize()/the denormalize()+coerce path.
     const val MIN_GLUCOSE_MMOL = 2.0f
     const val MAX_GLUCOSE_MMOL = 30.0f
+    const val MAX_NORM_MMOL = 25.0f
     const val SEQUENCE_LENGTH = 5
 
     fun normalize(raw: FloatArray): FloatArray {
         if (raw.isEmpty()) return raw
         return raw.map {
-            ((it - MIN_GLUCOSE_MMOL) / (MAX_GLUCOSE_MMOL - MIN_GLUCOSE_MMOL)).coerceIn(0f, 1f)
+            ((it - MIN_GLUCOSE_MMOL) / (MAX_NORM_MMOL - MIN_GLUCOSE_MMOL)).coerceIn(0f, 1f)
         }.toFloatArray()
     }
 
     fun denormalize(normalizedValue: Float): Float =
-        (normalizedValue * (MAX_GLUCOSE_MMOL - MIN_GLUCOSE_MMOL)) + MIN_GLUCOSE_MMOL
+        (normalizedValue * (MAX_NORM_MMOL - MIN_GLUCOSE_MMOL)) + MIN_GLUCOSE_MMOL
 
     fun isValidGlucose(value: Float): Boolean =
         GlucosePolicy.isValid(value)

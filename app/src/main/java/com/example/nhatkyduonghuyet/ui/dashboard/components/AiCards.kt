@@ -14,6 +14,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.nhatkyduonghuyet.domain.GlucoseRiskLevel
 
 @Composable
 fun AiPredictionRow(morningVal: Float, morningRisk: String, afternoonVal: Float, afternoonRisk: String) {
@@ -50,9 +51,10 @@ fun AiCard(label: String, value: Float, risk: String, modifier: Modifier = Modif
             )
             Text("mmol/L", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
             
-            val riskColor = when {
-                risk.contains("Low") -> Color(0xFF2196F3)
-                risk.contains("High") -> Color(0xFFF44336)
+            val riskColor = when (risk) {
+                GlucoseRiskLevel.LOW.label -> Color(0xFFD32F2F)
+                GlucoseRiskLevel.HIGH.label -> Color(0xFFFF9800)
+                GlucoseRiskLevel.VERY_HIGH.label -> Color(0xFFF44336)
                 else -> Color(0xFF4CAF50)
             }
 

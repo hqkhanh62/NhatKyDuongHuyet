@@ -39,6 +39,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -63,6 +64,9 @@ import com.example.nhatkyduonghuyet.ui.dashboard.components.RealtimePredictionCa
 import com.example.nhatkyduonghuyet.ui.dashboard.components.RiskSummaryCard
 import com.example.nhatkyduonghuyet.ui.theme.NhatKyDuongHuyetTheme
 
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Switch
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardScreenPro(
@@ -75,6 +79,30 @@ fun DashboardScreenPro(
     val state by viewModel.uiState.collectAsState()
     val showRetrain by viewModel.showRetrainDialog.collectAsState()
     val context = androidx.compose.ui.platform.LocalContext.current
+    
+    var showWidgetSettings by remember { mutableStateOf(false) }
+
+    if (showWidgetSettings) {
+        val hideDataValue = remember { mutableStateOf(com.example.nhatkyduonghuyet.domain.PrivacyPolicy.shouldHideWidgetData(context)) }
+        AlertDialog(
+            onDismissRequest = { showWidgetSettings = false },
+            title = { Text("Cài đặt Widget") },
+            text = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Ẩn chỉ số nhạy cảm trên Widget", modifier = Modifier.weight(1f))
+                    Switch(
+                        checked = hideDataValue.value,
+                        onCheckedChange = { 
+                            hideDataValue.value = it
+                            com.example.nhatkyduonghuyet.domain.PrivacyPolicy.setHideWidgetData(context, it)
+                            com.example.nhatkyduonghuyet.widget.WidgetUpdater.updateAllWidgets(context)
+                        }
+                    )
+                }
+            },
+            confirmButton = { TextButton(onClick = { showWidgetSettings = false }) { Text("Xong") } }
+        )
+    }
 
     DashboardScreenProContent(
         state = state,
@@ -86,6 +114,7 @@ fun DashboardScreenPro(
         onNavigateToPrediction = onNavigateToPrediction,
         onNavigateToScanner = onNavigateToScanner,
         onNavigateToMedication = onNavigateToMedication,
+        onOpenWidgetSettings = { showWidgetSettings = true },
         onExportPdf = { viewModel.exportToPdf(context) }
     )
 }
@@ -102,6 +131,7 @@ fun DashboardScreenProContent(
     onNavigateToPrediction: () -> Unit,
     onNavigateToScanner: () -> Unit,
     onNavigateToMedication: () -> Unit,
+    onOpenWidgetSettings: () -> Unit,
     onExportPdf: () -> Unit = {}
 ) {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
@@ -128,6 +158,9 @@ fun DashboardScreenProContent(
                         onExpandedChange = { showFilterMenu = it },
                         onTimeFilterSelected = onTimeFilterSelected
                     )
+                    IconButton(onClick = onOpenWidgetSettings) {
+                        Icon(Icons.Default.Settings, "Cài đặt Widget", tint = MaterialTheme.colorScheme.primary)
+                    }
                     IconButton(onClick = onExportPdf) {
                         Icon(Icons.Default.PictureAsPdf, stringResource(R.string.export_report), tint = MaterialTheme.colorScheme.primary)
                     }
@@ -228,6 +261,20 @@ private fun ForecastStatusCard(message: String) {
 
 @Composable
 fun GeminiInsightCard(state: GeminiInsightUiState, onRequest: () -> Unit) {
+    var consented by remember { mutableStateOf(false) }
+    var showConsent by remember { mutableStateOf(false) }
+
+    fun requestWithConsent() {
+        // Require an explicit, informed consent before any health measurement
+        // is transmitted to the server (see docs/gemini-insights-backend.md).
+        // Consent is remembered for this screen session after the first tap.
+        if (!consented) {
+            showConsent = true
+        } else {
+            onRequest()
+        }
+    }
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -260,7 +307,7 @@ fun GeminiInsightCard(state: GeminiInsightUiState, onRequest: () -> Unit) {
                         style = MaterialTheme.typography.bodyMedium
                     )
                     Spacer(Modifier.height(12.dp))
-                    OutlinedButton(onClick = onRequest) { Text(stringResource(R.string.analyze_my_data)) }
+                    OutlinedButton(onClick = { requestWithConsent() }) { Text(stringResource(R.string.analyze_my_data)) }
                 }
                 GeminiInsightUiState.Loading -> {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -272,15 +319,39 @@ fun GeminiInsightCard(state: GeminiInsightUiState, onRequest: () -> Unit) {
                 is GeminiInsightUiState.Content -> {
                     Text(state.text, style = MaterialTheme.typography.bodyMedium)
                     Spacer(Modifier.height(12.dp))
-                    OutlinedButton(onClick = onRequest) { Text(stringResource(R.string.refresh_analysis)) }
+                    OutlinedButton(onClick = { requestWithConsent() }) { Text(stringResource(R.string.refresh_analysis)) }
                 }
                 is GeminiInsightUiState.Unavailable -> {
                     Text(state.message, style = MaterialTheme.typography.bodyMedium)
                     Spacer(Modifier.height(12.dp))
-                    OutlinedButton(onClick = onRequest) { Text(stringResource(R.string.try_again)) }
+                    OutlinedButton(onClick = { requestWithConsent() }) { Text(stringResource(R.string.try_again)) }
                 }
             }
         }
+    }
+
+    if (showConsent) {
+        AlertDialog(
+            onDismissRequest = { showConsent = false },
+            title = { Text(stringResource(R.string.consent_title)) },
+            text = { Text(stringResource(R.string.consent_body)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        consented = true
+                        showConsent = false
+                        onRequest()
+                    }
+                ) {
+                    Text(stringResource(R.string.consent_agree))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showConsent = false }) {
+                    Text(stringResource(R.string.consent_decline))
+                }
+            }
+        )
     }
 }
 

@@ -95,6 +95,9 @@ class AIRepository @Inject constructor(
                 .asSequence()
                 .filter { it.session != "AI Prediction" }
                 .mapNotNull { entry -> entry.bgBefore?.toFloat()?.takeIf(Normalizer::isValidGlucose) }
+                // The query returns newest-first. Take the most recent N entries,
+                // then restore chronological order so every window predicts the
+                // actual next measurement forward in time.
                 .take(MAX_CALIBRATION_MEASUREMENTS)
                 .toList()
                 .asReversed()

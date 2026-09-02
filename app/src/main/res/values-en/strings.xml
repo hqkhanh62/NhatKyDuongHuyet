@@ -35,7 +35,14 @@
     <string name="after_dinner">After Dinner</string>
     <string name="prediction_result">PREDICTION RESULT</string>
     <string name="status_stable">Stable</string>
+    <string name="status_low">HYPOGLYCEMIA</string>
     <string name="status_monitor">Need Monitoring</string>
     <string name="status_high_risk">High Risk</string>
     <string name="status_danger">DANGER WARNING</string>
+
+    <!-- AI analysis consent -->
+    <string name="consent_title">Confirm data sharing</string>
+    <string name="consent_body">To generate an AI analysis, a portion of your blood glucose log (up to 20 entries) will be sent to a server for processing. This health data is used only to produce a summary, never as a medical diagnosis. Do you agree to share this data with the server?</string>
+    <string name="consent_agree">Agree</string>
+    <string name="consent_decline">Decline</string>
 </resources>

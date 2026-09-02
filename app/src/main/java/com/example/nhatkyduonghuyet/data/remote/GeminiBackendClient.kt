@@ -86,7 +86,8 @@ class GeminiBackendClient @Inject constructor() {
             connection.inputStream
         } else {
             connection.errorStream ?: connection.inputStream
-        }
+        } ?: return ""
+
         return BufferedReader(InputStreamReader(stream, Charsets.UTF_8)).use { reader ->
             reader.readText()
         }

@@ -78,9 +78,12 @@ fun PredictionScreen(
 
         debounceJob = scope.launch {
             isLoading = true
-            delay(500)
-            outcome = predictor.predict(value, type)
-            isLoading = false
+            try {
+                delay(500)
+                outcome = predictor.predict(value, type)
+            } finally {
+                isLoading = false
+            }
         }
     }
 
@@ -263,6 +266,7 @@ private fun PredictionErrorCard(message: String) {
 }
 
 fun getRiskColor(value: Float): Color = when {
+    value < 4.0f -> Color(0xFFD32F2F)
     value < 7.0f -> Color(0xFF4CAF50)
     value < 10.0f -> Color(0xFFFF9800)
     value < 13.0f -> Color(0xFFF44336)
@@ -271,6 +275,7 @@ fun getRiskColor(value: Float): Color = when {
 
 @Composable
 fun getInsight(value: Float): String = when {
+    value < 4.0f -> stringResource(R.string.status_low)
     value < 7.0f -> stringResource(R.string.status_stable)
     value < 10.0f -> stringResource(R.string.status_monitor)
     value < 13.0f -> stringResource(R.string.status_high_risk)

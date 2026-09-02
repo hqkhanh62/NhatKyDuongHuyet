@@ -48,10 +48,6 @@ class MedicationRepository @Inject constructor(
 
     suspend fun replaceMedications(medications: List<Medication>) {
         // Transactional replace to avoid inconsistent state (P1-MED-01)
-        // Note: For now, we still delete all because we don't have a stable key/ID mapping
-        // but we keep the logs which will now be orphaned but at least not deleted.
-        // In a real app, we'd map CSV items to existing DB items by name/dosage.
-        medicationDao.deleteAllMedications()
-        medications.forEach { medicationDao.insertMedication(it) }
+        medicationDao.replaceAllMedications(medications)
     }
 }
