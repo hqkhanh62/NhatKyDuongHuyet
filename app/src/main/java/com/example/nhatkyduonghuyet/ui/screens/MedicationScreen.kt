@@ -100,7 +100,7 @@ fun MedicationTableHeader() {
     ) {
         TableCell(text = stringResource(R.string.medication_name), weight = 2.5f, isHeader = true)
         TableCell(text = stringResource(R.string.medication_dosage), weight = 1.2f, isHeader = true)
-        TableCell(text = "Liều dùng / Ghi chú", weight = 3f, isHeader = true)
+        TableCell(text = stringResource(R.string.medication_instruction), weight = 3f, isHeader = true)
         
         // Session Checkboxes Header
         val sessions = listOf("Sáng", "Trưa", "Chiều", "Tối", "Ngủ")
@@ -124,14 +124,7 @@ fun MedicationRow(item: MedicationUiState, onToggle: (String, Boolean) -> Unit) 
     ) {
         TableCell(text = item.medication.name, weight = 2.5f)
         TableCell(text = item.medication.dosage, weight = 1.2f)
-        
-        val instructionText = buildString {
-            append(item.medication.instruction)
-            if (item.medication.timing.isNotBlank()) {
-                append(" (${item.medication.timing})")
-            }
-        }
-        TableCell(text = instructionText, weight = 3f)
+        TableCell(text = item.medication.instruction, weight = 3f)
         
         // Checkboxes
         Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {

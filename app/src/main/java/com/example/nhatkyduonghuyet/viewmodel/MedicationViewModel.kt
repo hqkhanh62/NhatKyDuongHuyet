@@ -84,8 +84,8 @@ class MedicationViewModel @Inject constructor(
                         Medication(
                             name = parts[1].trim(),
                             dosage = parts[2].trim(),
-                            instruction = parts[3].trim(),
-                            timing = if (parts.size > 4) parts[4].trim() else ""
+                            instruction = parts[3].trim().replace("viên", "v"),
+                            timing = if (parts.size > 4) parts[4].trim().replace("viên", "v") else ""
                         )
                     } else null
                 }
@@ -120,13 +120,13 @@ class MedicationViewModel @Inject constructor(
                 if (it.isEmpty()) {
                     val initialMeds = listOf(
                         Medication(name = "Insulin Mixtard FlexPen", dosage = "100 IU/mL", instruction = "Trưa 6 đơn vị; chiều 8 đơn vị", timing = ""),
-                        Medication(name = "Jardiance", dosage = "25 mg", instruction = "Sáng 1/2 viên", timing = ""),
-                        Medication(name = "Clopistad", dosage = "75 mg", instruction = "Trưa 1 viên", timing = ""),
-                        Medication(name = "Lipistad", dosage = "10 mg", instruction = "Chiều 1 viên", timing = ""),
-                        Medication(name = "Valsartan", dosage = "80 mg", instruction = "Trưa 1/2 viên", timing = ""),
-                        Medication(name = "Alfa-Lipogamma", dosage = "600 mg", instruction = "Sáng 1 viên", timing = "Sau thức ăn"),
-                        Medication(name = "Trajenta", dosage = "5 mg", instruction = "Sáng 1/2 viên", timing = ""),
-                        Medication(name = "Ketosteril", dosage = "", instruction = "Trưa 1 viên; chiều 1 viên", timing = "")
+                        Medication(name = "Jardiance", dosage = "25 mg", instruction = "Sáng 1/2 v", timing = ""),
+                        Medication(name = "Clopistad", dosage = "75 mg", instruction = "Trưa 1 v", timing = ""),
+                        Medication(name = "Lipistad", dosage = "10 mg", instruction = "Chiều 1 v", timing = ""),
+                        Medication(name = "Valsartan", dosage = "80 mg", instruction = "Trưa 1/2 v", timing = ""),
+                        Medication(name = "Alfa-Lipogamma", dosage = "600 mg", instruction = "Sáng 1 v", timing = ""),
+                        Medication(name = "Trajenta", dosage = "5 mg", instruction = "Sáng 1/2 v", timing = ""),
+                        Medication(name = "Ketosteril", dosage = "", instruction = "Trưa 1 v; chiều 1 v", timing = "")
                     )
                     initialMeds.forEach { med -> repository.insertMedication(med) }
                 }
