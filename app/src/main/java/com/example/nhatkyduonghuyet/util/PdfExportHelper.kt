@@ -98,9 +98,53 @@ object PdfExportHelper {
         }
         y += 15f
 
+        // Medication Log Section
+        if (state.medications.isNotEmpty()) {
+            canvas.drawText("2. NHẬT KÝ UỐNG THUỐC", 50f, y, subTitlePaint)
+            y += 25f
+            canvas.drawRect(50f, y - 15f, 545f, y + 5f, Paint().apply { color = Color.rgb(240, 240, 240) })
+            canvas.drawText("Tên thuốc", 55f, y, headerPaint)
+            canvas.drawText("Liều dùng", 200f, y, headerPaint)
+            canvas.drawText("Sáng", 350f, y, headerPaint)
+            canvas.drawText("Trưa", 400f, y, headerPaint)
+            canvas.drawText("Chiều", 450f, y, headerPaint)
+            canvas.drawText("Tổng tháng", 500f, y, headerPaint)
+            y += 20f
+
+            state.medications.forEach { med ->
+                if (y > 780) {
+                    pdfDocument.finishPage(page)
+                    page = pdfDocument.startPage(pageInfo)
+                    canvas = page.canvas
+                    y = 50f
+                    canvas.drawRect(50f, y - 15f, 545f, y + 5f, Paint().apply { color = Color.rgb(240, 240, 240) })
+                    canvas.drawText("Tên thuốc", 55f, y, headerPaint)
+                    canvas.drawText("Liều dùng", 200f, y, headerPaint)
+                    canvas.drawText("Sáng", 350f, y, headerPaint)
+                    canvas.drawText("Trưa", 400f, y, headerPaint)
+                    canvas.drawText("Chiều", 450f, y, headerPaint)
+                    canvas.drawText("Tổng tháng", 500f, y, headerPaint)
+                    y += 20f
+                }
+
+                canvas.drawText(med.medication.name, 55f, y, textPaint)
+                val truncatedInst = if (med.medication.instruction.length > 25) med.medication.instruction.take(22) + "..." else med.medication.instruction
+                canvas.drawText(truncatedInst, 200f, y, textPaint)
+                
+                canvas.drawText(if (med.isTakenMorning) "X" else "-", 360f, y, textPaint)
+                canvas.drawText(if (med.isTakenNoon) "X" else "-", 410f, y, textPaint)
+                canvas.drawText(if (med.isTakenEvening) "X" else "-", 460f, y, textPaint)
+                canvas.drawText("${med.countThisMonth}", 520f, y, textPaint)
+
+                y += 18f
+                canvas.drawLine(50f, y - 5f, 545f, y - 5f, linePaint)
+            }
+            y += 15f
+        }
+
         // AI Insights Section
         if (state.insights.isNotEmpty()) {
-            canvas.drawText("2. NHẬN ĐỊNH TỪ HỆ THỐNG AI", 50f, y, subTitlePaint)
+            canvas.drawText("3. NHẬN ĐỊNH TỪ HỆ THỐNG AI", 50f, y, subTitlePaint)
             y += 20f
             state.insights.take(3).forEach { insight ->
                 canvas.drawText("• $insight", 65f, y, textPaint)
@@ -110,7 +154,7 @@ object PdfExportHelper {
         }
 
         // Table Header
-        canvas.drawText("3. CHI TIẾT NHẬT KÝ", 50f, y, subTitlePaint)
+        canvas.drawText("4. CHI TIẾT NHẬT KÝ", 50f, y, subTitlePaint)
         y += 25f
         canvas.drawRect(50f, y - 15f, 545f, y + 5f, Paint().apply { color = Color.rgb(240, 240, 240) })
         canvas.drawText("Ngày giờ", 55f, y, headerPaint)

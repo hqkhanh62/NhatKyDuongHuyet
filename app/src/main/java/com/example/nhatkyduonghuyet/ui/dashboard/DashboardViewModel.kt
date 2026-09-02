@@ -24,6 +24,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
@@ -39,9 +41,13 @@ import javax.inject.Inject
 import android.content.Context
 import com.example.nhatkyduonghuyet.util.PdfExportHelper
 
+import com.example.nhatkyduonghuyet.data.repository.MedicationRepository
+import com.example.nhatkyduonghuyet.viewmodel.MedicationUiState
+
 @HiltViewModel
 class DashboardViewModel @Inject constructor(
     private val repo: LogRepository,
+    private val medicationRepository: MedicationRepository,
     private val realtimePredictor: RealtimePredictor,
     private val detectRisk: DetectRiskPattern,
     private val aiRepo: AIRepository,
@@ -219,23 +225,53 @@ class DashboardViewModel @Inject constructor(
         _timeFilter.value = filter
     }
 
+    private fun getMedicationsUiState(): Flow<List<MedicationUiState>> = medicationRepository.getAllMedications().flatMapLatest { meds ->
+        if (meds.isEmpty()) {
+            flowOf(emptyList<MedicationUiState>())
+        } else {
+            val startOfMonth = Calendar.getInstance().apply {
+                set(Calendar.DAY_OF_MONTH, 1)
+                set(Calendar.HOUR_OF_DAY, 0)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }.timeInMillis
+
+            val flows = meds.map { med ->
+                combine(
+                    medicationRepository.getLogsForToday(med.id),
+                    medicationRepository.getCountSince(med.id, startOfMonth)
+                ) { logsToday, monthlyCount ->
+                    MedicationUiState(
+                        medication = med,
+                        isTakenMorning = logsToday.any { it.session == "MORNING" },
+                        isTakenNoon = logsToday.any { it.session == "NOON" },
+                        isTakenEvening = logsToday.any { it.session == "EVENING" },
+                        countThisMonth = monthlyCount
+                    )
+                }
+            }
+            combine(flows) { it.toList() }
+        }
+    }
+
     val uiState: StateFlow<DashboardUiState> = combine(
-        listOf(
-            repo.getAllLogs(),
-            _timeFilter,
-            _realtimePrediction,
-            _multiStepForecast,
-            _forecastStatus,
-            _geminiInsight
-        )
+        repo.getAllLogs(),
+        getMedicationsUiState(),
+        _timeFilter,
+        _realtimePrediction,
+        _multiStepForecast,
+        _forecastStatus,
+        _geminiInsight
     ) { args: Array<Any?> ->
         DashboardInput(
             allEntries = args[0] as List<LogEntry>,
-            filter = args[1] as DashboardTimeFilter,
-            realtime = args[2] as PredictionResult?,
-            multiStep = args[3] as MultiStepResult?,
-            forecastStatus = args[4] as String?,
-            gemini = args[5] as GeminiInsightUiState
+            medications = args[1] as List<MedicationUiState>,
+            filter = args[2] as DashboardTimeFilter,
+            realtime = args[3] as PredictionResult?,
+            multiStep = args[4] as MultiStepResult?,
+            forecastStatus = args[5] as String?,
+            gemini = args[6] as GeminiInsightUiState
         )
     }.map(::buildUiState)
         .flowOn(Dispatchers.Default)
@@ -252,6 +288,7 @@ class DashboardViewModel @Inject constructor(
 
         return DashboardUiState(
             entries = currentEntries,
+            medications = input.medications,
             max = max,
             maxCompare = getComparison(max, previousMax),
             avg = avg,
@@ -352,6 +389,7 @@ class DashboardViewModel @Inject constructor(
 
     private data class DashboardInput(
         val allEntries: List<LogEntry>,
+        val medications: List<MedicationUiState> = emptyList(),
         val filter: DashboardTimeFilter,
         val realtime: PredictionResult?,
         val multiStep: MultiStepResult?,

@@ -3,6 +3,7 @@ package com.example.nhatkyduonghuyet.ui.dashboard
 import com.example.nhatkyduonghuyet.ai.MultiStepResult
 import com.example.nhatkyduonghuyet.ai.PredictionResult
 import com.example.nhatkyduonghuyet.data.local.entity.LogEntry
+import com.example.nhatkyduonghuyet.viewmodel.MedicationUiState
 
 enum class DashboardTimeFilter(val days: Int, val label: String) {
     LAST_15_DAYS(15, "15 ngày qua"),
@@ -32,6 +33,7 @@ sealed interface GeminiInsightUiState {
 
 data class DashboardUiState(
     val entries: List<LogEntry> = emptyList(),
+    val medications: List<MedicationUiState> = emptyList(),
     val max: Double = 0.0,
     val maxCompare: ComparisonData? = null,
     val avg: Double = 0.0,
