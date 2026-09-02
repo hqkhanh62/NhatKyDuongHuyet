@@ -48,10 +48,6 @@ fun MedicationScreen(
         }
     )
 
-    LaunchedEffect(Unit) {
-        viewModel.prepopulateData()
-    }
-
     Scaffold(
         topBar = {
             TopAppBar(
@@ -82,7 +78,7 @@ fun MedicationScreen(
                         items(medications) { item ->
                             MedicationRow(
                                 item = item, 
-                                onToggle = { session, taken -> viewModel.toggleMedication(item.medication.id, session, taken) }
+                                onToggle = { session, taken -> viewModel.toggleMedication(item.medication, session, taken) }
                             )
                             HorizontalDivider(color = Color.LightGray.copy(alpha = 0.5f))
                         }
@@ -104,17 +100,14 @@ fun MedicationTableHeader() {
     ) {
         TableCell(text = stringResource(R.string.medication_name), weight = 2.5f, isHeader = true)
         TableCell(text = stringResource(R.string.medication_dosage), weight = 1.2f, isHeader = true)
-        TableCell(text = stringResource(R.string.medication_instruction), weight = 3f, isHeader = true)
+        TableCell(text = "Liều dùng / Ghi chú", weight = 3f, isHeader = true)
         
         // Session Checkboxes Header
-        Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
-            Text(stringResource(R.string.medication_morning), style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold), fontSize = 13.sp)
-        }
-        Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
-            Text(stringResource(R.string.medication_noon), style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold), fontSize = 13.sp)
-        }
-        Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
-            Text(stringResource(R.string.medication_evening), style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold), fontSize = 13.sp)
+        val sessions = listOf("Sáng", "Trưa", "Chiều", "Tối", "Ngủ")
+        sessions.forEach {
+            Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                Text(it, style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold), fontSize = 12.sp)
+            }
         }
         
         TableCell(text = stringResource(R.string.medication_monthly_count), weight = 1.2f, isHeader = true)
@@ -131,19 +124,30 @@ fun MedicationRow(item: MedicationUiState, onToggle: (String, Boolean) -> Unit) 
     ) {
         TableCell(text = item.medication.name, weight = 2.5f)
         TableCell(text = item.medication.dosage, weight = 1.2f)
-        TableCell(text = item.medication.instruction, weight = 3f)
         
-        // Morning
+        val instructionText = buildString {
+            append(item.medication.instruction)
+            if (item.medication.timing.isNotBlank()) {
+                append(" (${item.medication.timing})")
+            }
+        }
+        TableCell(text = instructionText, weight = 3f)
+        
+        // Checkboxes
         Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
             Checkbox(checked = item.isTakenMorning, onCheckedChange = { onToggle("MORNING", it) })
         }
-        // Noon
         Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
             Checkbox(checked = item.isTakenNoon, onCheckedChange = { onToggle("NOON", it) })
         }
-        // Evening
+        Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+            Checkbox(checked = item.isTakenAfternoon, onCheckedChange = { onToggle("AFTERNOON", it) })
+        }
         Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
             Checkbox(checked = item.isTakenEvening, onCheckedChange = { onToggle("EVENING", it) })
+        }
+        Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+            Checkbox(checked = item.isTakenBedtime, onCheckedChange = { onToggle("BEDTIME", it) })
         }
         
         TableCell(text = "${item.countThisMonth} lần", weight = 1.2f)

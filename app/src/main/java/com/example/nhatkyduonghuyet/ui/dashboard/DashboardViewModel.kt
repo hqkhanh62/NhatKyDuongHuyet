@@ -56,7 +56,12 @@ class DashboardViewModel @Inject constructor(
 
     fun exportToPdf(context: Context) {
         viewModelScope.launch {
-            PdfExportHelper.exportReportToPdf(context, uiState.value)
+            val result = PdfExportHelper.exportReportToPdf(context, uiState.value)
+            result.onSuccess { file ->
+                PdfExportHelper.shareFile(context, file)
+            }.onFailure {
+                // Could add a toast or error state here if needed
+            }
         }
     }
 
@@ -246,7 +251,9 @@ class DashboardViewModel @Inject constructor(
                         medication = med,
                         isTakenMorning = logsToday.any { it.session == "MORNING" },
                         isTakenNoon = logsToday.any { it.session == "NOON" },
+                        isTakenAfternoon = logsToday.any { it.session == "AFTERNOON" },
                         isTakenEvening = logsToday.any { it.session == "EVENING" },
+                        isTakenBedtime = logsToday.any { it.session == "BEDTIME" },
                         countThisMonth = monthlyCount
                     )
                 }

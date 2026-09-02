@@ -8,7 +8,7 @@ import com.example.nhatkyduonghuyet.data.local.entity.LogEntry
 import com.example.nhatkyduonghuyet.data.local.entity.Medication
 import com.example.nhatkyduonghuyet.data.local.entity.MedicationLog
 
-@Database(entities = [LogEntry::class, Medication::class, MedicationLog::class], version = 3, exportSchema = false)
+@Database(entities = [LogEntry::class, Medication::class, MedicationLog::class], version = 4, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun logEntryDao(): LogEntryDao
     abstract fun medicationDao(): MedicationDao

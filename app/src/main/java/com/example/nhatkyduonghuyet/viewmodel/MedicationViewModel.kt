@@ -14,7 +14,9 @@ data class MedicationUiState(
     val medication: Medication,
     val isTakenMorning: Boolean,
     val isTakenNoon: Boolean,
+    val isTakenAfternoon: Boolean,
     val isTakenEvening: Boolean,
+    val isTakenBedtime: Boolean,
     val countThisMonth: Int
 )
 
@@ -44,7 +46,9 @@ class MedicationViewModel @Inject constructor(
                         medication = med,
                         isTakenMorning = logsToday.any { it.session == "MORNING" },
                         isTakenNoon = logsToday.any { it.session == "NOON" },
+                        isTakenAfternoon = logsToday.any { it.session == "AFTERNOON" },
                         isTakenEvening = logsToday.any { it.session == "EVENING" },
+                        isTakenBedtime = logsToday.any { it.session == "BEDTIME" },
                         countThisMonth = monthlyCount
                     )
                 }
@@ -53,21 +57,29 @@ class MedicationViewModel @Inject constructor(
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    fun toggleMedication(medId: Long, session: String, taken: Boolean) {
+    fun toggleMedication(med: Medication, session: String, taken: Boolean) {
         viewModelScope.launch {
-            repository.logMedication(medId, session, taken)
+            repository.logMedication(med, session, taken)
         }
     }
 
     fun importCsv(csvContent: String) {
         viewModelScope.launch {
+            // Limit CSV content size to prevent memory issues (MED-04)
+            if (csvContent.length > 100_000) {
+                // Too large file
+                return@launch
+            }
+
             val lines = csvContent.lines()
             if (lines.isEmpty()) return@launch
             
             val newMeds = lines.drop(1) // Skip header
                 .filter { it.isNotBlank() }
                 .mapNotNull { line ->
-                    val parts = line.split(",")
+                    // Safer CSV parsing for simple cases (handles basic commas)
+                    // For production, a real CSV library like OpenCSV is recommended.
+                    val parts = parseCsvLine(line)
                     if (parts.size >= 4) {
                         Medication(
                             name = parts[1].trim(),
@@ -82,6 +94,24 @@ class MedicationViewModel @Inject constructor(
                 repository.replaceMedications(newMeds)
             }
         }
+    }
+
+    private fun parseCsvLine(line: String): List<String> {
+        val result = mutableListOf<String>()
+        var currentPart = StringBuilder()
+        var inQuotes = false
+        for (char in line) {
+            when {
+                char == '\"' -> inQuotes = !inQuotes
+                char == ',' && !inQuotes -> {
+                    result.add(currentPart.toString())
+                    currentPart = StringBuilder()
+                }
+                else -> currentPart.append(char)
+            }
+        }
+        result.add(currentPart.toString())
+        return result
     }
 
     fun prepopulateData() {
