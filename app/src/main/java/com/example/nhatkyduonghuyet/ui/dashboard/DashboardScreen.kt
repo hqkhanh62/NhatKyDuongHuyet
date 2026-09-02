@@ -386,7 +386,8 @@ fun DashboardProPreview() {
             onViewDetails = {},
             onNavigateToPrediction = {},
             onNavigateToScanner = {},
-            onNavigateToMedication = {}
+            onNavigateToMedication = {},
+            onOpenWidgetSettings = {}
         )
     }
 }
