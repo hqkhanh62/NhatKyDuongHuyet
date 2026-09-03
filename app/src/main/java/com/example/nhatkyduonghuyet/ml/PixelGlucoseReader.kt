@@ -46,10 +46,16 @@ class PixelGlucoseReader {
      * Expects the image to be normalized (upright, centered on digits).
      */
     fun processDisplay(roi: Bitmap): PixelDisplayReading? {
-        val width = roi.width
-        val height = roi.height
+        // The guide frame is now mapped 1:1 onto this crop, so it usually
+        // contains the whole meter display (digits + labels) rather than a
+        // pre-tuned digit box. Locate the large digit band first, otherwise the
+        // fixed digit cells below would sample the wrong pixels.
+        val localized = localizeDigitBand(roi) ?: roi
+        val width = localized.width
+        val height = localized.height
+        if (width <= 0 || height <= 0) return null
         val pixels = IntArray(width * height)
-        roi.getPixels(pixels, 0, width, 0, 0, width, height)
+        localized.getPixels(pixels, 0, width, 0, 0, width, height)
 
         // Divide ROI into 3 potential digit cells and 1 decimal area.
         // These proportions are based on On Call Plus layout.
@@ -77,6 +83,60 @@ class PixelGlucoseReader {
         ) > DECIMAL_POINT_THRESHOLD
 
         return combineDigits(readings, decimalDetected)
+    }
+
+    /**
+     * Finds the bounding box of the dark (lit) pixels inside the crop and
+     * returns the tightest band that plausibly holds the main reading. This
+     * makes the reader tolerant to how far away the user holds the meter, which
+     * previously changed the digit positions and produced wrong values.
+     */
+    private fun localizeDigitBand(roi: Bitmap): Bitmap? {
+        val w = roi.width
+        val h = roi.height
+        if (w < 24 || h < 24) return null
+        val pixels = IntArray(w * h)
+        roi.getPixels(pixels, 0, w, 0, 0, w, h)
+
+        var total = 0.0
+        for (p in pixels) total += luminance(p)
+        val threshold = (total / pixels.size) * 0.75
+
+        val rowCounts = IntArray(h)
+        val colCounts = IntArray(w)
+        for (y in 0 until h) {
+            val off = y * w
+            for (x in 0 until w) {
+                if (luminance(pixels[off + x]) < threshold) {
+                    rowCounts[y]++
+                    colCounts[x]++
+                }
+            }
+        }
+
+        val rowMin = (w * 0.06f).toInt().coerceAtLeast(1)
+        val colMin = (h * 0.06f).toInt().coerceAtLeast(1)
+        val top = rowCounts.indexOfFirst { it >= rowMin }
+        val bottom = rowCounts.indexOfLast { it >= rowMin }
+        val left = colCounts.indexOfFirst { it >= colMin }
+        val right = colCounts.indexOfLast { it >= colMin }
+        if (top < 0 || bottom <= top || left < 0 || right <= left) return null
+
+        // Small margin so segment edges are not clipped.
+        val padX = ((right - left) * 0.04f).toInt()
+        val padY = ((bottom - top) * 0.06f).toInt()
+        val x0 = (left - padX).coerceAtLeast(0)
+        val y0 = (top - padY).coerceAtLeast(0)
+        val x1 = (right + padX).coerceAtMost(w - 1)
+        val y1 = (bottom + padY).coerceAtMost(h - 1)
+        val bw = x1 - x0 + 1
+        val bh = y1 - y0 + 1
+        if (bw < 12 || bh < 12) return null
+        // Reject degenerate boxes (whole frame dark or a thin glare line).
+        val ratio = bw.toFloat() / bh
+        if (ratio < 0.5f || ratio > 6f) return null
+
+        return Bitmap.createBitmap(roi, x0, y0, bw, bh)
     }
 
     private fun readDigit(pixels: IntArray, width: Int, height: Int, cell: RectF): SegmentReading? {

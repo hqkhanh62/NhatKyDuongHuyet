@@ -8,16 +8,8 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.util.Log
-import android.util.Size
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.camera.core.CameraSelector
-import androidx.camera.core.FocusMeteringAction
-import androidx.camera.core.ImageAnalysis
-import androidx.camera.core.Preview
-import androidx.camera.core.SurfaceOrientedMeteringPointFactory
-import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.camera.view.PreviewView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,12 +19,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -41,7 +32,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
@@ -52,24 +42,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.navigation.NavController
 import com.example.nhatkyduonghuyet.ml.GlucoseScanner
 import com.example.nhatkyduonghuyet.ml.ScannedGlucoseResult
-import com.google.mlkit.vision.common.InputImage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicLong
-import java.util.concurrent.atomic.AtomicReference
 
-@OptIn(androidx.camera.core.ExperimentalGetImage::class)
 @Composable
 fun ScannerScreen(
     navController: NavController,
@@ -77,16 +59,13 @@ fun ScannerScreen(
     onGlucoseDetected: (ScannedGlucoseResult) -> Unit
 ) {
     val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
-    val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
-    val isProcessing = remember { AtomicBoolean(false) }
     val hasDetectedSuccess = remember { AtomicBoolean(false) }
-    val lastAttemptAt = remember { AtomicLong(0L) }
-    val cameraProviderRef = remember { AtomicReference<ProcessCameraProvider?>(null) }
     val scope = rememberCoroutineScope()
 
     var lastResult by remember { mutableStateOf<ScannedGlucoseResult?>(null) }
     var showRedFlash by remember { mutableStateOf(false) }
+    var torchOn by remember { mutableStateOf(false) }
+    val recentValues = remember { java.util.ArrayDeque<Float>() }
     var cameraControlState by remember { mutableStateOf<androidx.camera.core.CameraControl?>(null) }
     var permissionGranted by remember {
         mutableStateOf(
@@ -101,13 +80,6 @@ fun ScannerScreen(
 
     LaunchedEffect(Unit) {
         if (!permissionGranted) permissionLauncher.launch(Manifest.permission.CAMERA)
-    }
-
-    DisposableEffect(Unit) {
-        onDispose {
-            cameraProviderRef.get()?.unbindAll()
-            cameraExecutor.shutdownNow()
-        }
     }
 
     suspend fun triggerDangerAlert() {
@@ -184,135 +156,61 @@ fun ScannerScreen(
     ) { padding ->
         Box(modifier = Modifier.padding(padding).fillMaxSize()) {
             if (permissionGranted) {
-                AndroidView(
-                    factory = { ctx ->
-                        val previewView = PreviewView(ctx).apply {
-                            scaleType = PreviewView.ScaleType.FILL_CENTER
-                        }
-                        val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
-
-                        cameraProviderFuture.addListener({
-                            val provider = cameraProviderFuture.get()
-                            cameraProviderRef.set(provider)
-                            val preview = Preview.Builder()
-                                .setTargetResolution(Size(1280, 720))
-                                .build()
-                                .also { it.setSurfaceProvider(previewView.surfaceProvider) }
-
-                            val imageAnalysis = ImageAnalysis.Builder()
-                                .setTargetResolution(Size(1280, 720))
-                                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                                .build()
-                                .also { analysis ->
-                                    analysis.setAnalyzer(cameraExecutor) { imageProxy ->
-                                        val now = System.currentTimeMillis()
-                                        val shouldAnalyze = !hasDetectedSuccess.get() &&
-                                            !isProcessing.get() &&
-                                            now - lastAttemptAt.get() >= ANALYSIS_INTERVAL_MS
-
-                                        if (!shouldAnalyze) {
-                                            imageProxy.close()
-                                            return@setAnalyzer
-                                        }
-
-                                        lastAttemptAt.set(now)
-                                        if (!isProcessing.compareAndSet(false, true)) {
-                                            imageProxy.close()
-                                            return@setAnalyzer
-                                        }
-
-                                        val bitmap = try {
-                                            imageProxy.toBitmap()
-                                        } catch (e: Exception) {
-                                            null
-                                        }
-
-                                        if (bitmap == null) {
-                                            isProcessing.set(false)
-                                            imageProxy.close()
-                                            return@setAnalyzer
-                                        }
-
-                                        scanner.processHybrid(
-                                            bitmap,
-                                            imageProxy.imageInfo.rotationDegrees,
-                                            onResult = { result ->
-                                                isProcessing.set(false)
-                                                imageProxy.close()
-                                                if (result != null && hasDetectedSuccess.compareAndSet(false, true)) {
-                                                    val isDanger = result.value > 13.0f
-                                                    triggerHealthVibration(isDanger)
-                                                    if (isDanger) {
-                                                        scope.launch {
-                                                            triggerDangerAlert()
-                                                        }
-                                                    }
-                                                    lastResult = result
-                                                    onGlucoseDetected(result)
-                                                }
-                                            },
-                                            onError = {
-                                                isProcessing.set(false)
-                                                imageProxy.close()
-                                            }
-                                        )
-                                    }
-                                }
-
-                            try {
-                                provider.unbindAll()
-                                val camera = provider.bindToLifecycle(
-                                    lifecycleOwner,
-                                    CameraSelector.DEFAULT_BACK_CAMERA,
-                                    preview,
-                                    imageAnalysis
-                                )
-                                cameraControlState = camera.cameraControl
-                                val focusFactory = SurfaceOrientedMeteringPointFactory(1f, 1f)
-                                camera.cameraControl.startFocusAndMetering(
-                                    FocusMeteringAction.Builder(focusFactory.createPoint(0.5f, 0.5f))
-                                        .setAutoCancelDuration(3, TimeUnit.SECONDS)
-                                        .build()
-                                )
-                            } catch (error: Exception) {
-                                Log.e("Scanner", "Binding failed", error)
+                GlucoseCameraPreview(
+                    scanner = scanner,
+                    modifier = Modifier.fillMaxSize(),
+                    enabled = !hasDetectedSuccess.get(),
+                    torchEnabled = torchOn,
+                    onCameraReady = { cameraControlState = it },
+                    onError = { Log.e("Scanner", "Camera error", it) },
+                    onResult = { result ->
+                        val stable = synchronized(recentValues) {
+                            recentValues.addLast(result.value)
+                            while (recentValues.size > STABILITY_WINDOW_SIZE) {
+                                recentValues.removeFirst()
                             }
-                        }, ContextCompat.getMainExecutor(ctx))
-                        previewView
-                    },
-                    modifier = Modifier.fillMaxSize()
+                            findStableValue(recentValues)
+                        }
+                        if (stable != null && hasDetectedSuccess.compareAndSet(false, true)) {
+                            val stableResult = result.copy(value = stable)
+                            val isDanger = stableResult.value > 13.0f
+                            triggerHealthVibration(isDanger)
+                            if (isDanger) {
+                                scope.launch { triggerDangerAlert() }
+                            }
+                            lastResult = stableResult
+                            onGlucoseDetected(stableResult)
+                        }
+                    }
                 )
 
-                Box(modifier = Modifier.fillMaxSize()) {
-                    Surface(
-                        modifier = Modifier
-                            .size(width = 280.dp, height = 200.dp)
-                            .align(Alignment.Center),
-                        color = Color.Transparent,
-                        border = androidx.compose.foundation.BorderStroke(
-                            2.dp,
-                            Color.Green.copy(alpha = 0.8f)
-                        ),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {}
+                IconButton(
+                    onClick = { torchOn = !torchOn },
+                    modifier = Modifier.align(Alignment.TopEnd).padding(12.dp)
+                ) {
+                    Icon(
+                        Icons.Default.FlashOn,
+                        contentDescription = "Bật/tắt đèn",
+                        tint = if (torchOn) Color.Yellow else Color.White
+                    )
+                }
 
-                    Column(
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(bottom = 32.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(
-                            "Đưa màn hình máy đo vào khung xanh và giữ yên",
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            "Hệ thống tự quét trong vài giây",
-                            color = Color.White
-                        )
-                    }
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        "Đưa màn hình máy đo lấp đầy khung xanh và giữ yên",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        "Giữ cách 15-20cm, tránh bóng loá trên mặt kính",
+                        color = Color.White
+                    )
                 }
 
                 if (showRedFlash) {
@@ -373,4 +271,13 @@ fun ScannerScreen(
     }
 }
 
-private const val ANALYSIS_INTERVAL_MS = 250L
+private const val STABILITY_WINDOW_SIZE = 4
+private const val STABILITY_REQUIRED_MATCHES = 3
+private const val STABILITY_TOLERANCE = 0.15f
+
+private fun findStableValue(values: java.util.ArrayDeque<Float>): Float? {
+    if (values.size < STABILITY_REQUIRED_MATCHES) return null
+    val latest = values.peekLast()
+    val matches = values.count { kotlin.math.abs(it - latest) <= STABILITY_TOLERANCE }
+    return if (matches >= STABILITY_REQUIRED_MATCHES) latest else null
+}

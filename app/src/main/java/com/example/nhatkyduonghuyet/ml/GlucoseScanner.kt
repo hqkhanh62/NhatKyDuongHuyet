@@ -65,24 +65,37 @@ class GlucoseScanner @Inject constructor() {
             }
     }
 
+    /**
+     * @param roi region of the rotated frame the user framed in the green guide.
+     *   Passing the real on-screen frame keeps the analysed pixels identical no
+     *   matter how large the preview surface is (dialog vs. full screen).
+     */
     fun processHybrid(
         fullBitmap: Bitmap,
         rotationDegrees: Int,
+        roi: NormalizedRect = ImageUtils.DISPLAY_ROI,
         onResult: (ScannedGlucoseResult?) -> Unit,
         onError: (Exception) -> Unit
     ) {
         val rotated = ImageUtils.rotateBitmap(fullBitmap, rotationDegrees)
-        val displayRoi = ImageUtils.cropNormalized(rotated, ImageUtils.DISPLAY_ROI)
-        
-        // 1. Run Pixel Reader
+        val safeRoi = roi.sanitized()
+        val displayRoi = ImageUtils.enhanceForOcr(ImageUtils.cropNormalized(rotated, safeRoi))
+
+        // 1. Run Pixel Reader on the exact framed display.
         val pixelResult = pixelReader.processDisplay(displayRoi)
-        
-        // 2. Run ML Kit
-        val inputImage = InputImage.fromBitmap(rotated, 0)
+
+        // 2. Run ML Kit on a slightly padded, contrast-boosted and upscaled crop
+        // so units/labels stay readable while background clutter is excluded.
+        val ocrBitmap = ImageUtils.prepareOcrBitmap(rotated, safeRoi.expand(OCR_ROI_PADDING))
+        val inputImage = InputImage.fromBitmap(ocrBitmap, 0)
         recognizer.process(inputImage)
             .addOnSuccessListener { visionText ->
                 val rawText = visionText.text
-                val mlKitValue = extractGlucose(rawText)
+                val mlKitValue = if (visionText.textBlocks.isEmpty()) {
+                    extractGlucose(rawText)
+                } else {
+                    extractGlucose(visionText) ?: extractGlucose(rawText)
+                }
                 
                 val finalResult = combineHybrid(pixelResult, mlKitValue, rawText)
                 onResult(finalResult)

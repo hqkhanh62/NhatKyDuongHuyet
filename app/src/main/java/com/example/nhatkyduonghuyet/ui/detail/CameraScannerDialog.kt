@@ -2,29 +2,27 @@ package com.example.nhatkyduonghuyet.ui.detail
 
 import android.Manifest
 import android.content.pm.PackageManager
-import android.util.Size
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.camera.core.CameraSelector
-import androidx.camera.core.FocusMeteringAction
-import androidx.camera.core.ImageAnalysis
-import androidx.camera.core.Preview
-import androidx.camera.core.SurfaceOrientedMeteringPointFactory
-import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.camera.view.PreviewView
-import androidx.compose.foundation.BorderStroke
+import androidx.camera.core.CameraControl
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.Surface
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -34,20 +32,24 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import com.example.nhatkyduonghuyet.ml.GlucoseScanner
 import com.example.nhatkyduonghuyet.ml.ScannedGlucoseResult
-import com.google.mlkit.vision.common.InputImage
+import com.example.nhatkyduonghuyet.ui.scanner.GlucoseCameraPreview
 import java.util.ArrayDeque
-import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicLong
 
-@OptIn(androidx.camera.core.ExperimentalGetImage::class)
+/**
+ * Scanning dialog opened from DayDetail.
+ *
+ * It now reuses [GlucoseCameraPreview], so it analyses exactly the region the
+ * user frames in green - identical behaviour to the full-screen scanner opened
+ * from the dashboard. The preview is also given a much larger surface, because
+ * a tiny preview forces the user to hold the meter far away and shrinks the
+ * digits below what OCR can read reliably.
+ */
 @Composable
 fun CameraScannerDialog(
     scanner: GlucoseScanner,
@@ -55,22 +57,18 @@ fun CameraScannerDialog(
     onResult: (ScannedGlucoseResult) -> Unit
 ) {
     val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
-    val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
-    val isProcessing = remember { AtomicBoolean(false) }
     val hasDeliveredResult = remember { AtomicBoolean(false) }
-    val lastAttemptAt = remember { AtomicLong(0L) }
-    // Keep this window scoped to the current dialog. A new scan must not reuse
-    // a value obtained by a previous camera session.
     val recentValues = remember { ArrayDeque<Float>() }
+
     var permissionGranted by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
                 PackageManager.PERMISSION_GRANTED
         )
     }
-    var cameraProvider by remember { mutableStateOf<ProcessCameraProvider?>(null) }
     var resultDelivered by remember { mutableStateOf(false) }
+    var torchOn by remember { mutableStateOf(false) }
+    var cameraControl by remember { mutableStateOf<CameraControl?>(null) }
     var statusText by remember { mutableStateOf("Đưa màn hình máy đo vào khung xanh…") }
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -88,28 +86,28 @@ fun CameraScannerDialog(
         if (permissionGranted) {
             kotlinx.coroutines.delay(SCAN_FEEDBACK_TIMEOUT_MS)
             if (!hasDeliveredResult.get()) {
-                statusText = "Chưa đọc được. Giữ máy đo yên, tránh lóa rồi thử lại."
+                statusText = "Chưa đọc được. Giữ máy đo cách 15-20cm, tránh lóa, " +
+                    "hoặc bật đèn flash rồi thử lại."
             }
-        }
-    }
-
-    DisposableEffect(Unit) {
-        onDispose {
-            cameraProvider?.unbindAll()
-            cameraExecutor.shutdownNow()
         }
     }
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+        modifier = Modifier.fillMaxWidth(0.96f),
+        title = { Text("Quét máy đo") },
         confirmButton = {},
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("HỦY") }
+            Row(horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onDismiss) { Text("HỦY") }
+            }
         },
         text = {
             if (!permissionGranted) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(statusText)
+                    Spacer(Modifier.height(12.dp))
                     Button(onClick = {
                         permissionLauncher.launch(Manifest.permission.CAMERA)
                     }) {
@@ -117,125 +115,54 @@ fun CameraScannerDialog(
                     }
                 }
             } else {
-                Box(modifier = Modifier.size(320.dp)) {
-                    AndroidView(
-                        factory = { ctx ->
-                            val previewView = PreviewView(ctx).apply {
-                                scaleType = PreviewView.ScaleType.FILL_CENTER
-                            }
-                            val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
-                            cameraProviderFuture.addListener({
-                                val provider = cameraProviderFuture.get()
-                                cameraProvider = provider
-
-                                val preview = Preview.Builder()
-                                    .setTargetResolution(Size(1280, 720))
-                                    .build()
-                                    .also { it.setSurfaceProvider(previewView.surfaceProvider) }
-
-                                val imageAnalysis = ImageAnalysis.Builder()
-                                    .setTargetResolution(Size(1280, 720))
-                                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                                    .build()
-                                    .also { analysis ->
-                                        analysis.setAnalyzer(cameraExecutor) { imageProxy ->
-                                            val now = System.currentTimeMillis()
-                                            val shouldAnalyze = !hasDeliveredResult.get() &&
-                                                !isProcessing.get() &&
-                                                now - lastAttemptAt.get() >= ANALYSIS_INTERVAL_MS
-
-                                            if (!shouldAnalyze) {
-                                                imageProxy.close()
-                                                return@setAnalyzer
-                                            }
-
-                                            lastAttemptAt.set(now)
-                                            if (!isProcessing.compareAndSet(false, true)) {
-                                                imageProxy.close()
-                                                return@setAnalyzer
-                                            }
-
-                                            val bitmap = try {
-                                                imageProxy.toBitmap()
-                                            } catch (e: Exception) {
-                                                null
-                                            }
-
-                                            if (bitmap == null) {
-                                                isProcessing.set(false)
-                                                imageProxy.close()
-                                                return@setAnalyzer
-                                            }
-
-                                            scanner.processHybrid(
-                                                bitmap,
-                                                imageProxy.imageInfo.rotationDegrees,
-                                                onResult = { result ->
-                                                    isProcessing.set(false)
-                                                    imageProxy.close()
-                                                    if (result != null && !hasDeliveredResult.get()) {
-                                                        val stableValue = synchronized(recentValues) {
-                                                            recentValues.addLast(result.value)
-                                                            while (recentValues.size > STABILITY_WINDOW_SIZE) {
-                                                                recentValues.removeFirst()
-                                                            }
-                                                            findStableValue(recentValues)
-                                                        }
-
-                                                        if (stableValue != null &&
-                                                            hasDeliveredResult.compareAndSet(false, true)) {
-                                                            resultDelivered = true
-                                                            onResult(result.copy(value = stableValue))
-                                                        }
-                                                    }
-                                                },
-                                                onError = {
-                                                    isProcessing.set(false)
-                                                    imageProxy.close()
-                                                }
-                                            )
-                                        }
+                Column {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 360.dp, max = 460.dp)
+                    ) {
+                        GlucoseCameraPreview(
+                            scanner = scanner,
+                            modifier = Modifier.fillMaxWidth().height(420.dp),
+                            enabled = !resultDelivered,
+                            torchEnabled = torchOn,
+                            onCameraReady = { cameraControl = it },
+                            onError = { error ->
+                                statusText = "Không thể mở camera: " +
+                                    (error.localizedMessage ?: "lỗi không xác định")
+                            },
+                            onResult = { result ->
+                                if (hasDeliveredResult.get()) return@GlucoseCameraPreview
+                                val stableValue = synchronized(recentValues) {
+                                    recentValues.addLast(result.value)
+                                    while (recentValues.size > STABILITY_WINDOW_SIZE) {
+                                        recentValues.removeFirst()
                                     }
-
-                                try {
-                                    provider.unbindAll()
-                                    val camera = provider.bindToLifecycle(
-                                        lifecycleOwner,
-                                        CameraSelector.DEFAULT_BACK_CAMERA,
-                                        preview,
-                                        imageAnalysis
-                                    )
-                                    val focusFactory = SurfaceOrientedMeteringPointFactory(1f, 1f)
-                                    val focusPoint = focusFactory.createPoint(0.5f, 0.5f)
-                                    camera.cameraControl.startFocusAndMetering(
-                                        FocusMeteringAction.Builder(focusPoint)
-                                            .setAutoCancelDuration(3, TimeUnit.SECONDS)
-                                            .build()
-                                    )
-                                } catch (error: Exception) {
-                                    statusText = "Không thể mở camera: ${error.localizedMessage ?: "lỗi không xác định"}"
+                                    findStableValue(recentValues)
                                 }
-                            }, ContextCompat.getMainExecutor(ctx))
-                            previewView
-                        },
-                        modifier = Modifier.fillMaxSize()
-                    )
+                                if (stableValue != null &&
+                                    hasDeliveredResult.compareAndSet(false, true)
+                                ) {
+                                    resultDelivered = true
+                                    onResult(result.copy(value = stableValue))
+                                }
+                            }
+                        )
 
-                    Surface(
-                        modifier = Modifier
-                            .size(width = 240.dp, height = 150.dp)
-                            .align(Alignment.Center),
-                        color = Color.Transparent,
-                        border = BorderStroke(2.dp, Color.Green)
-                    ) {}
+                        IconButton(
+                            onClick = { torchOn = !torchOn },
+                            modifier = Modifier.align(Alignment.TopEnd).padding(8.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.FlashOn,
+                                contentDescription = "Bật/tắt đèn",
+                                tint = if (torchOn) Color.Yellow else Color.White
+                            )
+                        }
+                    }
 
-                    Text(
-                        text = statusText,
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(bottom = 8.dp),
-                        color = Color.White
-                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(statusText)
                 }
             }
         }
@@ -246,7 +173,6 @@ fun CameraScannerDialog(
     }
 }
 
-private const val ANALYSIS_INTERVAL_MS = 250L
 private const val SCAN_FEEDBACK_TIMEOUT_MS = 8_000L
 private const val STABILITY_WINDOW_SIZE = 4
 private const val STABILITY_REQUIRED_MATCHES = 3
