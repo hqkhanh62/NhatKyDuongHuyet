@@ -11,6 +11,9 @@ kapt {
     useBuildCache = true
     arguments {
         arg("room.incremental", "true")
+        // Export schema JSON so future migrations can be diffed and tested
+        // instead of being guessed at. Required by MigrationTestHelper.
+        arg("room.schemaLocation", "$projectDir/schemas")
     }
 }
 
