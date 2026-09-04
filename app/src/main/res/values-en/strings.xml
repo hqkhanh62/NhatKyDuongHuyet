@@ -50,4 +50,5 @@
     <string name="backup_now">Back up now</string>
     <string name="restore_from_backup">Restore from backup</string>
     <string name="more_actions">More actions</string>
+    <string name="backup_and_restore">Backup &amp; Restore</string>
 </resources>

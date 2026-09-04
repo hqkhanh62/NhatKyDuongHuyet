@@ -105,5 +105,8 @@ fun AppNavHost(
                 viewModel = medicationViewModel
             )
         }
+        composable(GlucoseScreen.Backup.route) {
+            com.example.nhatkyduonghuyet.ui.backup.BackupScreen(navController = navController)
+        }
     }
 }

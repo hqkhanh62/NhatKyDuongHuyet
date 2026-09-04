@@ -5,7 +5,6 @@ import com.example.nhatkyduonghuyet.data.local.entity.LogEntry
 /**
  * Pure CSV (de)serialization for the blood-glucose diary.
  *
- * Extracted from [CsvExportHelper] so it can be covered by JVM unit tests.
  * Since the app keeps `allowBackup="false"` (health data must not go to the
  * cloud), this CSV is the **only** way a user can carry their diary across a
  * reinstall - so it has to be lossless.

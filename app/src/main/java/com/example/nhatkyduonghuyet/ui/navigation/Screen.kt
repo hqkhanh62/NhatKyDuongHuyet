@@ -9,4 +9,5 @@ sealed class GlucoseScreen(val route: String) {
     object Prediction : GlucoseScreen("prediction")
     object Scanner : GlucoseScreen("scanner")
     object Medication : GlucoseScreen("medication")
+    object Backup : GlucoseScreen("backup")
 }

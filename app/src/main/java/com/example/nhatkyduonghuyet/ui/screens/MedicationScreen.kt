@@ -1,7 +1,5 @@
 package com.example.nhatkyduonghuyet.ui.screens
 
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -11,10 +9,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Backup
-import androidx.compose.material.icons.filled.FileDownload
-import androidx.compose.material.icons.filled.FileUpload
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -38,30 +32,14 @@ fun MedicationScreen(
 ) {
     val medications by viewModel.medicationList.collectAsState(initial = emptyList())
     val snackbarHostState = remember { SnackbarHostState() }
-    val backupMessage by viewModel.backupMessage.collectAsState()
-    var menuExpanded by remember { mutableStateOf(false) }
+    val message by viewModel.message.collectAsState()
 
-    LaunchedEffect(backupMessage) {
-        backupMessage?.let {
+    LaunchedEffect(message) {
+        message?.let {
             snackbarHostState.showSnackbar(it)
-            viewModel.consumeBackupMessage()
+            viewModel.consumeMessage()
         }
     }
-
-    val importLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent(),
-        onResult = { uri -> uri?.let { viewModel.importPrescription(it) } }
-    )
-
-    val exportPrescriptionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("text/csv"),
-        onResult = { uri -> uri?.let { viewModel.exportPrescription(it) } }
-    )
-
-    val exportHistoryLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("text/csv"),
-        onResult = { uri -> uri?.let { viewModel.exportHistory(it) } }
-    )
 
     Scaffold(
         topBar = {
@@ -73,61 +51,16 @@ fun MedicationScreen(
                     }
                 },
                 actions = {
+                    // Backup/export now lives on one dedicated screen instead
+                    // of being split across two overflow menus.
                     IconButton(onClick = {
-                        exportPrescriptionLauncher.launch(viewModel.prescriptionFileName())
+                        navController.navigate(
+                            com.example.nhatkyduonghuyet.ui.navigation.GlucoseScreen.Backup.route
+                        )
                     }) {
                         Icon(
-                            Icons.Default.FileDownload,
-                            contentDescription = stringResource(R.string.export_prescription_csv)
-                        )
-                    }
-                    IconButton(onClick = { menuExpanded = true }) {
-                        Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.more_actions))
-                    }
-                    DropdownMenu(
-                        expanded = menuExpanded,
-                        onDismissRequest = { menuExpanded = false }
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.export_prescription_csv)) },
-                            leadingIcon = { Icon(Icons.Default.FileDownload, contentDescription = null) },
-                            onClick = {
-                                menuExpanded = false
-                                exportPrescriptionLauncher.launch(viewModel.prescriptionFileName())
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.export_history_csv)) },
-                            leadingIcon = { Icon(Icons.Default.FileDownload, contentDescription = null) },
-                            onClick = {
-                                menuExpanded = false
-                                exportHistoryLauncher.launch(viewModel.historyFileName())
-                            }
-                        )
-                        HorizontalDivider()
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.import_csv)) },
-                            leadingIcon = { Icon(Icons.Default.FileUpload, contentDescription = null) },
-                            onClick = {
-                                menuExpanded = false
-                                importLauncher.launch("*/*")
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.backup_now)) },
-                            leadingIcon = { Icon(Icons.Default.Backup, contentDescription = null) },
-                            onClick = {
-                                menuExpanded = false
-                                viewModel.backupNow()
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.restore_from_backup)) },
-                            leadingIcon = { Icon(Icons.Default.Restore, contentDescription = null) },
-                            onClick = {
-                                menuExpanded = false
-                                viewModel.restoreFromBackup()
-                            }
+                            Icons.Default.Backup,
+                            contentDescription = stringResource(R.string.backup_and_restore)
                         )
                     }
                 }
