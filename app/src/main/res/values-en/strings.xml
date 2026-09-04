@@ -45,4 +45,9 @@
     <string name="consent_body">To generate an AI analysis, a portion of your blood glucose log (up to 20 entries) will be sent to a server for processing. This health data is used only to produce a summary, never as a medical diagnosis. Do you agree to share this data with the server?</string>
     <string name="consent_agree">Agree</string>
     <string name="consent_decline">Decline</string>
+    <string name="export_prescription_csv">Export prescription (CSV)</string>
+    <string name="export_history_csv">Export intake history (CSV)</string>
+    <string name="backup_now">Back up now</string>
+    <string name="restore_from_backup">Restore from backup</string>
+    <string name="more_actions">More actions</string>
 </resources>

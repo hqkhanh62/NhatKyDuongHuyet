@@ -25,6 +25,18 @@ abstract class MedicationDao {
     @Query("DELETE FROM medication_logs WHERE medicationId = :medicationId AND session = :session AND date = :date")
     abstract suspend fun deleteLog(medicationId: Long, session: String, date: String)
 
+    /** One-shot snapshot used by the CSV backup/export pipeline. */
+    @Query("SELECT * FROM medications ORDER BY id")
+    abstract suspend fun getAllMedicationsOnce(): List<Medication>
+
+    /** Full intake history, newest first, for CSV export. */
+    @Query("SELECT * FROM medication_logs ORDER BY date DESC, timestamp DESC")
+    abstract suspend fun getAllLogsOnce(): List<MedicationLog>
+
+    /** Reactive history feed so a backup can be triggered on every change. */
+    @Query("SELECT * FROM medication_logs ORDER BY date DESC, timestamp DESC")
+    abstract fun observeAllLogs(): Flow<List<MedicationLog>>
+
     @Query("DELETE FROM medications")
     abstract suspend fun deleteAllMedications()
 

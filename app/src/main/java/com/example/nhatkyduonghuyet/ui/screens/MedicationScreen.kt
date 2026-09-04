@@ -10,13 +10,16 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Backup
+import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.FileUpload
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -34,18 +37,30 @@ fun MedicationScreen(
     viewModel: MedicationViewModel = hiltViewModel()
 ) {
     val medications by viewModel.medicationList.collectAsState(initial = emptyList())
-    val context = LocalContext.current
+    val snackbarHostState = remember { SnackbarHostState() }
+    val backupMessage by viewModel.backupMessage.collectAsState()
+    var menuExpanded by remember { mutableStateOf(false) }
 
-    val filePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent(),
-        onResult = { uri ->
-            uri?.let {
-                context.contentResolver.openInputStream(it)?.use { stream ->
-                    val content = stream.bufferedReader().readText()
-                    viewModel.importCsv(content)
-                }
-            }
+    LaunchedEffect(backupMessage) {
+        backupMessage?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.consumeBackupMessage()
         }
+    }
+
+    val importLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent(),
+        onResult = { uri -> uri?.let { viewModel.importPrescription(it) } }
+    )
+
+    val exportPrescriptionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("text/csv"),
+        onResult = { uri -> uri?.let { viewModel.exportPrescription(it) } }
+    )
+
+    val exportHistoryLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("text/csv"),
+        onResult = { uri -> uri?.let { viewModel.exportHistory(it) } }
     )
 
     Scaffold(
@@ -58,12 +73,67 @@ fun MedicationScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { filePickerLauncher.launch("text/*") }) {
-                        Icon(Icons.Default.FileUpload, contentDescription = stringResource(R.string.import_csv))
+                    IconButton(onClick = {
+                        exportPrescriptionLauncher.launch(viewModel.prescriptionFileName())
+                    }) {
+                        Icon(
+                            Icons.Default.FileDownload,
+                            contentDescription = stringResource(R.string.export_prescription_csv)
+                        )
+                    }
+                    IconButton(onClick = { menuExpanded = true }) {
+                        Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.more_actions))
+                    }
+                    DropdownMenu(
+                        expanded = menuExpanded,
+                        onDismissRequest = { menuExpanded = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.export_prescription_csv)) },
+                            leadingIcon = { Icon(Icons.Default.FileDownload, contentDescription = null) },
+                            onClick = {
+                                menuExpanded = false
+                                exportPrescriptionLauncher.launch(viewModel.prescriptionFileName())
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.export_history_csv)) },
+                            leadingIcon = { Icon(Icons.Default.FileDownload, contentDescription = null) },
+                            onClick = {
+                                menuExpanded = false
+                                exportHistoryLauncher.launch(viewModel.historyFileName())
+                            }
+                        )
+                        HorizontalDivider()
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.import_csv)) },
+                            leadingIcon = { Icon(Icons.Default.FileUpload, contentDescription = null) },
+                            onClick = {
+                                menuExpanded = false
+                                importLauncher.launch("*/*")
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.backup_now)) },
+                            leadingIcon = { Icon(Icons.Default.Backup, contentDescription = null) },
+                            onClick = {
+                                menuExpanded = false
+                                viewModel.backupNow()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.restore_from_backup)) },
+                            leadingIcon = { Icon(Icons.Default.Restore, contentDescription = null) },
+                            onClick = {
+                                menuExpanded = false
+                                viewModel.restoreFromBackup()
+                            }
+                        )
                     }
                 }
             )
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
         Column(
             modifier = Modifier

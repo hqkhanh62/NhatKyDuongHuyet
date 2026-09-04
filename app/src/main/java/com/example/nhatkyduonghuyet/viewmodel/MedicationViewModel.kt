@@ -3,6 +3,9 @@ package com.example.nhatkyduonghuyet.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.nhatkyduonghuyet.data.local.entity.Medication
+import android.net.Uri
+import com.example.nhatkyduonghuyet.data.repository.BackupOutcome
+import com.example.nhatkyduonghuyet.data.repository.MedicationBackupRepository
 import com.example.nhatkyduonghuyet.data.repository.MedicationRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
@@ -22,8 +25,57 @@ data class MedicationUiState(
 
 @HiltViewModel
 class MedicationViewModel @Inject constructor(
-    private val repository: MedicationRepository
+    private val repository: MedicationRepository,
+    private val backupRepository: MedicationBackupRepository
 ) : ViewModel() {
+
+    private val _backupMessage = MutableStateFlow<String?>(null)
+    /** One-shot message for the snackbar; call [consumeBackupMessage] after showing. */
+    val backupMessage: StateFlow<String?> = _backupMessage.asStateFlow()
+
+    val lastBackupAt: StateFlow<Long> = backupRepository.lastBackupAt
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
+
+    fun consumeBackupMessage() {
+        _backupMessage.value = null
+    }
+
+    private fun report(outcome: BackupOutcome) {
+        _backupMessage.value = when (outcome) {
+            is BackupOutcome.Success -> outcome.message
+            is BackupOutcome.Failure -> outcome.message
+        }
+    }
+
+    /** Suggested filenames for the SAF create-document dialogs. */
+    fun prescriptionFileName(): String =
+        "don_thuoc_" + fileStamp() + ".csv"
+
+    fun historyFileName(): String =
+        "lich_su_uong_thuoc_" + fileStamp() + ".csv"
+
+    private fun fileStamp(): String =
+        java.text.SimpleDateFormat("yyyyMMdd_HHmm", Locale.US).format(Date())
+
+    fun exportPrescription(uri: Uri) {
+        viewModelScope.launch { report(backupRepository.exportPrescription(uri)) }
+    }
+
+    fun exportHistory(uri: Uri) {
+        viewModelScope.launch { report(backupRepository.exportHistory(uri)) }
+    }
+
+    fun backupNow() {
+        viewModelScope.launch { report(backupRepository.backupNow()) }
+    }
+
+    fun restoreFromBackup() {
+        viewModelScope.launch { report(backupRepository.restoreFromLatestSnapshot()) }
+    }
+
+    fun importPrescription(uri: Uri) {
+        viewModelScope.launch { report(backupRepository.importPrescriptionFromUri(uri)) }
+    }
 
     val medicationList: Flow<List<MedicationUiState>> = repository.getAllMedications().flatMapLatest { meds ->
         if (meds.isEmpty()) {
@@ -67,51 +119,20 @@ class MedicationViewModel @Inject constructor(
         viewModelScope.launch {
             // Limit CSV content size to prevent memory issues (MED-04)
             if (csvContent.length > 100_000) {
-                // Too large file
+                _backupMessage.value = "File quá lớn (giới hạn 100KB)."
                 return@launch
             }
 
-            val lines = csvContent.lines()
-            if (lines.isEmpty()) return@launch
-            
-            val newMeds = lines.drop(1) // Skip header
-                .filter { it.isNotBlank() }
-                .mapNotNull { line ->
-                    // Safer CSV parsing for simple cases (handles basic commas)
-                    // For production, a real CSV library like OpenCSV is recommended.
-                    val parts = parseCsvLine(line)
-                    if (parts.size >= 4) {
-                        Medication(
-                            name = parts[1].trim(),
-                            dosage = parts[2].trim(),
-                            instruction = parts[3].trim().replace("viên", "v"),
-                            timing = if (parts.size > 4) parts[4].trim().replace("viên", "v") else ""
-                        )
-                    } else null
-                }
-            
+            val newMeds = com.example.nhatkyduonghuyet.util.MedicationCsv
+                .parsePrescriptionCsv(csvContent)
+
             if (newMeds.isNotEmpty()) {
                 repository.replaceMedications(newMeds)
+                _backupMessage.value = "Đã nhập ${newMeds.size} thuốc từ file CSV."
+            } else {
+                _backupMessage.value = "File không có dòng thuốc hợp lệ."
             }
         }
-    }
-
-    private fun parseCsvLine(line: String): List<String> {
-        val result = mutableListOf<String>()
-        var currentPart = StringBuilder()
-        var inQuotes = false
-        for (char in line) {
-            when {
-                char == '\"' -> inQuotes = !inQuotes
-                char == ',' && !inQuotes -> {
-                    result.add(currentPart.toString())
-                    currentPart = StringBuilder()
-                }
-                else -> currentPart.append(char)
-            }
-        }
-        result.add(currentPart.toString())
-        return result
     }
 
     fun prepopulateData() {

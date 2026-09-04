@@ -52,6 +52,11 @@
     <string name="medication_evening">Chiều</string>
     <string name="medication_monthly_count">Đã uống (Tháng)</string>
     <string name="import_csv">Nhập đơn thuốc (CSV)</string>
+    <string name="export_prescription_csv">Xuất đơn thuốc (CSV)</string>
+    <string name="export_history_csv">Xuất lịch sử uống thuốc (CSV)</string>
+    <string name="backup_now">Sao lưu ngay</string>
+    <string name="restore_from_backup">Khôi phục từ bản sao lưu</string>
+    <string name="more_actions">Thêm thao tác</string>
 
     <!-- AI analysis consent -->
     <string name="consent_title">Xác nhận gửi dữ liệu</string>
