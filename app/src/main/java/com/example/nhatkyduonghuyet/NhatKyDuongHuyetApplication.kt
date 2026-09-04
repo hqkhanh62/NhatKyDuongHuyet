@@ -2,6 +2,7 @@ package com.example.nhatkyduonghuyet
 
 import android.app.Application
 import android.util.Log
+import com.example.nhatkyduonghuyet.data.backup.AutoExportWorker
 import com.example.nhatkyduonghuyet.data.backup.BackupRepository
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
@@ -31,6 +32,12 @@ class NhatKyDuongHuyetApplication : Application() {
 
             // Then mirror every table on every change.
             backupRepository.startAutoBackup(appScope)
+
+            // Re-arm the weekly export if the user has opted in. Enqueuing is
+            // KEEP-based, so this is a no-op when the job is already scheduled.
+            if (backupRepository.isAutoExportEnabled) {
+                AutoExportWorker.schedule(this@NhatKyDuongHuyetApplication)
+            }
         }
     }
 

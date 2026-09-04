@@ -140,6 +140,29 @@ class BackupRepository @Inject constructor(
     fun suggestedFileName(part: BackupPart): String =
         "${part.fileStem}_${timestamp()}.csv"
 
+    /** Filename for the all-in-one bundle. */
+    fun suggestedBundleName(): String =
+        "${BackupBundle.FILE_PREFIX}_${timestamp()}.zip"
+
+    /**
+     * Exports everything as a single file. This is the path the UI leads with,
+     * and the one the weekly automatic export writes, so a user who only ever
+     * taps one button still ends up with a complete backup.
+     */
+    suspend fun exportBundle(uri: Uri): BackupResult = withContext(Dispatchers.IO) {
+        val snapshot = snapshot()
+        if (snapshot.isEmpty) {
+            return@withContext BackupResult.Failure("Chưa có dữ liệu nào để xuất.")
+        }
+        val written = storage.writeBytesToUri(uri, BackupBundle.pack(snapshot))
+        if (written.isSuccess) {
+            markExported()
+            BackupResult.Success("Đã xuất toàn bộ ${snapshot.totalRows} dòng dữ liệu vào 1 tệp.")
+        } else {
+            BackupResult.Failure("Xuất thất bại: ${written.exceptionOrNull()?.message}")
+        }
+    }
+
     /** Exports one dataset to a user-chosen location. */
     suspend fun export(part: BackupPart, uri: Uri): BackupResult = withContext(Dispatchers.IO) {
         val snapshot = snapshot()
@@ -159,14 +182,36 @@ class BackupRepository @Inject constructor(
      */
     suspend fun restoreFromUri(uri: Uri, displayName: String?): BackupResult =
         withContext(Dispatchers.IO) {
-            val read = storage.readFromUri(uri)
-            val content = read.getOrNull()
+            val read = storage.readBytesFromUri(uri)
+            val bytes = read.getOrNull()
                 ?: return@withContext BackupResult.Failure(
                     "Không đọc được file: ${read.exceptionOrNull()?.message}"
                 )
+
+            // One "Khôi phục" button handles both the bundle and a single CSV,
+            // so the user never has to know which kind of file they picked.
+            if (BackupBundle.isBundle(displayName, bytes)) {
+                val snapshot = runCatching { BackupBundle.unpack(bytes) }.getOrNull()
+                    ?: return@withContext BackupResult.Failure(
+                        "Tệp nén bị lỗi, không đọc được."
+                    )
+                if (snapshot.isEmpty) {
+                    return@withContext BackupResult.Failure(
+                        "Tệp nén không chứa dữ liệu nào của app."
+                    )
+                }
+                val report = applySnapshot(snapshot)
+                return@withContext if (report.touchedAnything) {
+                    BackupResult.Success(report.describe())
+                } else {
+                    BackupResult.Failure(report.describe())
+                }
+            }
+
+            val content = bytes.toString(Charsets.UTF_8)
             val part = BackupCsv.detectPart(displayName, content)
                 ?: return@withContext BackupResult.Failure(
-                    "Không nhận dạng được file. Hãy chọn file CSV do chính app xuất ra."
+                    "Không nhận dạng được file. Hãy chọn tệp do chính app xuất ra."
                 )
             val report = applySnapshot(BackupCsv.decode(part, content))
             if (report.touchedAnything) {
@@ -258,6 +303,93 @@ class BackupRepository @Inject constructor(
 
     fun snapshotFiles(): List<File> = storage.listSnapshots()
 
+    // ------------------------------------------------- automatic weekly export
+
+    /**
+     * The folder the user granted us persistent write access to, or null.
+     *
+     * A background worker cannot write to an arbitrary location: SAF grants are
+     * tied to a user gesture. So automatic export is opt-in - the user picks a
+     * folder once (ideally one that syncs, like Google Drive), we persist the
+     * permission, and from then on the weekly job can write there unattended.
+     */
+    var autoExportFolder: Uri?
+        get() = prefs.getString(KEY_AUTO_FOLDER, null)?.let(Uri::parse)
+        private set(value) {
+            prefs.edit().putString(KEY_AUTO_FOLDER, value?.toString()).apply()
+        }
+
+    val isAutoExportEnabled: Boolean
+        get() = autoExportFolder != null
+
+    /** Persists the folder grant so it survives a reboot. */
+    fun enableAutoExport(folder: Uri): Boolean = runCatching {
+        context.contentResolver.takePersistableUriPermission(
+            folder,
+            android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
+                android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+        )
+        autoExportFolder = folder
+        true
+    }.getOrElse {
+        Log.e(TAG, "Khong giu duoc quyen ghi thu muc", it)
+        false
+    }
+
+    fun disableAutoExport() {
+        autoExportFolder?.let { folder ->
+            runCatching {
+                context.contentResolver.releasePersistableUriPermission(
+                    folder,
+                    android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
+                        android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            }
+        }
+        autoExportFolder = null
+    }
+
+    /**
+     * Writes the weekly bundle into the chosen folder.
+     *
+     * Skipped when the user exported by hand recently - the point is to protect
+     * people who forget, not to litter their Drive with duplicates.
+     */
+    suspend fun runScheduledExport(): BackupResult = withContext(Dispatchers.IO) {
+        val folder = autoExportFolder
+            ?: return@withContext BackupResult.Failure("Chưa chọn thư mục xuất tự động.")
+
+        val days = computeDaysSince(_lastExportAt.value)
+        if (days != null && days < AUTO_EXPORT_INTERVAL_DAYS) {
+            return@withContext BackupResult.Success("Bỏ qua: bạn vừa xuất file $days ngày trước.")
+        }
+
+        val snapshot = snapshot()
+        if (snapshot.isEmpty) {
+            return@withContext BackupResult.Failure("Chưa có dữ liệu để xuất.")
+        }
+
+        val created = storage.createFileInFolder(
+            folder = folder,
+            displayName = suggestedBundleName(),
+            mimeType = BackupBundle.MIME_TYPE
+        ).getOrElse {
+            // Usually means the user deleted the folder or revoked access.
+            return@withContext BackupResult.Failure(
+                "Không ghi được vào thư mục đã chọn: ${it.message}"
+            )
+        }
+
+        val written = storage.writeBytesToUri(created, BackupBundle.pack(snapshot))
+        if (written.isSuccess) {
+            markExported()
+            storage.pruneAutoExports(folder, MAX_AUTO_EXPORTS)
+            BackupResult.Success("Đã tự động xuất ${snapshot.totalRows} dòng dữ liệu.")
+        } else {
+            BackupResult.Failure("Xuất tự động thất bại: ${written.exceptionOrNull()?.message}")
+        }
+    }
+
     private fun markBackedUp() {
         val now = System.currentTimeMillis()
         prefs.edit().putLong(KEY_LAST_BACKUP_AT, now).apply()
@@ -279,7 +411,10 @@ class BackupRepository @Inject constructor(
         const val KEY_LAST_VERSION = "last_backed_up_version"
         const val KEY_LAST_BACKUP_AT = "last_backup_at"
         const val KEY_LAST_EXPORT_AT = "last_export_at"
+        const val KEY_AUTO_FOLDER = "auto_export_folder"
         const val AUTO_BACKUP_DEBOUNCE_MS = 1_500L
+        const val AUTO_EXPORT_INTERVAL_DAYS = 7L
+        const val MAX_AUTO_EXPORTS = 8
         const val DAY_MS = 24L * 60 * 60 * 1000
     }
 }

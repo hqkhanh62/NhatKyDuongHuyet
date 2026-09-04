@@ -3,6 +3,7 @@ package com.example.nhatkyduonghuyet.data.backup
 import android.content.Context
 import android.net.Uri
 import android.util.Log
+import androidx.documentfile.provider.DocumentFile
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.text.SimpleDateFormat
@@ -72,17 +73,47 @@ class BackupStorage @Inject constructor(
             ?.sortedByDescending { it.lastModified() }
             ?: emptyList()
 
-    fun writeToUri(uri: Uri, content: String): Result<Unit> = runCatching {
+    fun writeToUri(uri: Uri, content: String): Result<Unit> =
+        writeBytesToUri(uri, content.toByteArray(Charsets.UTF_8))
+
+    fun writeBytesToUri(uri: Uri, bytes: ByteArray): Result<Unit> = runCatching {
         context.contentResolver.openOutputStream(uri, "wt")?.use { out ->
-            out.write(content.toByteArray(Charsets.UTF_8))
+            out.write(bytes)
             out.flush()
         } ?: error("Không mở được file đích")
     }
 
-    fun readFromUri(uri: Uri): Result<String> = runCatching {
-        context.contentResolver.openInputStream(uri)?.use {
-            it.readBytes().toString(Charsets.UTF_8)
-        } ?: error("Không đọc được file")
+    fun readBytesFromUri(uri: Uri): Result<ByteArray> = runCatching {
+        context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+            ?: error("Không đọc được file")
+    }
+
+    /**
+     * Creates a file inside a folder the user granted access to, for the
+     * unattended weekly export.
+     */
+    fun createFileInFolder(uri: Uri, displayName: String, mimeType: String): Result<Uri> =
+        runCatching {
+            val tree = DocumentFile.fromTreeUri(context, uri)
+                ?: error("Thư mục không còn truy cập được")
+            if (!tree.canWrite()) error("Không có quyền ghi vào thư mục")
+            // Replace a same-named file rather than letting the system append
+            // "(1)" forever.
+            tree.findFile(displayName)?.delete()
+            tree.createFile(mimeType, displayName)?.uri
+                ?: error("Không tạo được tệp trong thư mục")
+        }
+
+    /** Keeps only the newest automatic exports in the user's folder. */
+    fun pruneAutoExports(folder: Uri, keep: Int) {
+        runCatching {
+            val tree = DocumentFile.fromTreeUri(context, folder) ?: return
+            tree.listFiles()
+                .filter { it.isFile && it.name?.startsWith(BackupBundle.FILE_PREFIX) == true }
+                .sortedByDescending { it.lastModified() }
+                .drop(keep)
+                .forEach { it.delete() }
+        }.onFailure { Log.w(TAG, "Khong don duoc ban xuat tu dong cu", it) }
     }
 
     /**

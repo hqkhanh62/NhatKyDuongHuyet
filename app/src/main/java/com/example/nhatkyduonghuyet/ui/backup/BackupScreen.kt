@@ -16,12 +16,16 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Card
+import androidx.compose.material3.Switch
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -49,6 +53,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
+import com.example.nhatkyduonghuyet.data.backup.BackupBundle
 import com.example.nhatkyduonghuyet.data.backup.BackupPart
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -77,6 +82,7 @@ fun BackupScreen(
     val snackbarHostState = remember { SnackbarHostState() }
 
     var pendingExport by remember { mutableStateOf<BackupPart?>(null) }
+    var showIndividual by remember { mutableStateOf(false) }
 
     LaunchedEffect(message) {
         message?.let {
@@ -92,6 +98,15 @@ fun BackupScreen(
         pendingExport = null
         if (uri != null && part != null) viewModel.export(part, uri)
     }
+
+    val bundleLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument(BackupBundle.MIME_TYPE)
+    ) { uri: Uri? -> uri?.let { viewModel.exportBundle(it) } }
+
+    // Persistent folder grant for the weekly unattended export.
+    val folderLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri: Uri? -> uri?.let { viewModel.enableAutoExport(it) } }
 
     val restoreLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -156,32 +171,62 @@ fun BackupScreen(
 
             Text("Xuất ra file", fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(8.dp))
-            BackupPart.entries.forEach { part ->
-                OutlinedButton(
-                    onClick = {
-                        pendingExport = part
-                        exportLauncher.launch(viewModel.fileNameFor(part))
-                    },
-                    enabled = !state.isBusy,
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
-                ) {
-                    Icon(Icons.Default.FileDownload, contentDescription = null)
-                    Spacer(Modifier.height(0.dp))
-                    Text("  ${part.label}")
+
+            // Leading action: one tap, one file, everything in it. Exporting
+            // the three files separately invites a half-finished backup.
+            Button(
+                onClick = { bundleLauncher.launch(viewModel.bundleFileName()) },
+                enabled = !state.isBusy,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Default.Archive, contentDescription = null)
+                Text("  Xuất toàn bộ (1 tệp)")
+            }
+            Text(
+                "Gồm cả 3 loại dữ liệu trong một tệp .zip duy nhất. Nên dùng cách này.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Spacer(Modifier.height(8.dp))
+            TextButton(onClick = { showIndividual = !showIndividual }) {
+                Text(if (showIndividual) "Ẩn xuất từng phần" else "Xuất từng phần riêng lẻ")
+            }
+            if (showIndividual) {
+                BackupPart.entries.forEach { part ->
+                    OutlinedButton(
+                        onClick = {
+                            pendingExport = part
+                            exportLauncher.launch(viewModel.fileNameFor(part))
+                        },
+                        enabled = !state.isBusy,
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
+                    ) {
+                        Icon(Icons.Default.FileDownload, contentDescription = null)
+                        Text("  ${part.label}")
+                    }
                 }
             }
+
+            Spacer(Modifier.height(20.dp))
+            AutoExportCard(
+                enabled = state.autoExportEnabled,
+                folderName = state.autoExportFolderName,
+                onPickFolder = { folderLauncher.launch(null) },
+                onDisable = { viewModel.disableAutoExport() }
+            )
 
             Spacer(Modifier.height(16.dp))
 
             Text("Khôi phục", fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(8.dp))
             OutlinedButton(
-                onClick = { restoreLauncher.launch(arrayOf("text/*", "text/csv", "*/*")) },
+                onClick = { restoreLauncher.launch(arrayOf("application/zip", "text/*", "*/*")) },
                 enabled = !state.isBusy,
                 modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
             ) {
                 Icon(Icons.Default.FileUpload, contentDescription = null)
-                Text("  Chọn file CSV để khôi phục")
+                Text("  Chọn tệp sao lưu để khôi phục")
             }
             OutlinedButton(
                 onClick = { viewModel.restoreFromRollingSnapshot() },
@@ -262,6 +307,73 @@ private fun ExportReminderCard(daysSinceExport: Long?) {
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onErrorContainer
                 )
+            }
+        }
+    }
+}
+
+/**
+ * Weekly automatic export.
+ *
+ * Deliberately framed as "choose a folder" rather than a bare on/off switch:
+ * a background job cannot write anywhere without a persisted SAF grant, so the
+ * folder *is* the setting. Wording nudges towards a synced folder, because an
+ * automatic export that lands only on the same phone still dies with the phone.
+ */
+@Composable
+private fun AutoExportCard(
+    enabled: Boolean,
+    folderName: String?,
+    onPickFolder: () -> Unit,
+    onDisable: () -> Unit
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Tự động xuất hằng tuần", fontWeight = FontWeight.Bold)
+                    Text(
+                        text = if (enabled) {
+                            "Đang bật. Thư mục: ${folderName ?: "đã chọn"}"
+                        } else {
+                            "Đang tắt"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = enabled,
+                    onCheckedChange = { checked ->
+                        if (checked) onPickFolder() else onDisable()
+                    }
+                )
+            }
+
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = "Mỗi tuần app sẽ tự lưu một tệp sao lưu đầy đủ vào thư mục bạn " +
+                    "chọn. Nếu tuần đó bạn đã tự xuất file thì app sẽ bỏ qua.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = "Nên chọn thư mục có đồng bộ đám mây (ví dụ Google Drive). " +
+                    "Thư mục nằm trong máy sẽ mất cùng máy.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            if (enabled) {
+                Spacer(Modifier.height(8.dp))
+                TextButton(onClick = onPickFolder) {
+                    Text("Đổi thư mục")
+                }
             }
         }
     }
