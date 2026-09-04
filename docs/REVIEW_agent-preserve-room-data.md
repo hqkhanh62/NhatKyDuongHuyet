@@ -118,16 +118,61 @@ android:allowBackup="false"
 ```
 và `data_extraction_rules.xml` loại trừ luôn database khỏi cloud backup.
 
-Tôi **cố ý không đổi** những dòng này, vì đây là dữ liệu sức khoẻ và việc bật sao lưu lên Google Drive là quyết định về quyền riêng tư, không phải quyết định kỹ thuật. Ba lựa chọn:
+**QUYẾT ĐỊNH CỦA CHỦ DỰ ÁN: giữ nguyên `allowBackup="false"`** (phương án 1) — ưu tiên quyền riêng tư, dữ liệu sức khoẻ không lên cloud. Manifest và `data_extraction_rules.xml` **không thay đổi**.
 
-1. **Giữ nguyên** — an toàn nhất về riêng tư; người dùng tự xuất CSV (tính năng đã có ở lượt trước) trước khi gỡ app.
-2. **Bật Auto Backup** (`allowBackup="true"` + bỏ exclude) — dữ liệu tự khôi phục khi cài lại máy/đổi máy, nhưng dữ liệu sức khoẻ sẽ nằm trên Google Drive của người dùng.
-3. **Sao lưu ra thư mục Documents công cộng** — sống sót khi gỡ app, không lên cloud. Cần `MANAGE_EXTERNAL_STORAGE` hoặc MediaStore.
-
-Nói tôi biết bạn chọn hướng nào.
+Hệ quả: **xuất CSV là con đường DUY NHẤT** để mang dữ liệu qua lần cài lại app. Xem mục "Hệ quả của phương án 1" bên dưới.
 
 ---
 
 ## Đề xuất xử lý nhánh cũ
 
 Nhánh `agent/preserve-room-data` nên **xoá hoặc bỏ qua**. Nếu muốn giữ làm tham khảo thì đừng merge — nội dung của nó đã lỗi thời và phần giá trị (chẩn đoán `fallbackToDestructiveMigration`) đã được tiếp thu và làm kỹ hơn trên nhánh arena.
+
+---
+
+# Hệ quả của phương án 1 (giữ `allowBackup="false"`)
+
+Vì đã chốt không dùng cloud backup, CSV trở thành **đường cứu hộ duy nhất**. Điều đó có nghĩa file CSV phải **không mất mát dữ liệu**. Khi rà lại, tôi phát hiện một lỗ hổng nghiêm trọng và đã vá.
+
+## Lỗi phát hiện: CSV nhật ký âm thầm bỏ mất 3 trường
+
+`LogEntry` có 12 trường dữ liệu, nhưng `CsvExportHelper` cũ chỉ ghi ra 8:
+
+| Trường | Có trong CSV cũ? |
+|---|---|
+| date, session, medType, dose, time, bgBefore, bgAfter, note | ✅ |
+| **bpSys** (huyết áp tâm thu) | ❌ **mất** |
+| **bpDia** (huyết áp tâm trương) | ❌ **mất** |
+| **heartRate** (nhịp tim) | ❌ **mất** |
+
+Đáng chú ý: bản xuất **PDF** vẫn in huyết áp (`PdfExportHelper.kt:179`), nên đây rõ ràng là thiếu sót của CSV chứ không phải chủ ý.
+
+Với phương án 1, lỗi này nghĩa là: người dùng xuất CSV cẩn thận trước khi gỡ app, cài lại, nhập CSV vào — và **toàn bộ lịch sử huyết áp + nhịp tim biến mất vĩnh viễn** mà không có cảnh báo nào.
+
+## Đã sửa
+
+**`LogEntryCsv.kt` (mới)** — tách toàn bộ logic CSV ra khỏi Android để test được trên JVM:
+- Xuất đủ **11 cột**, thêm `Huyet ap tam thu`, `Huyet ap tam truong`, `Nhip tim` ở cuối
+- Thêm **BOM UTF-8** (trước đây không có → Excel trên Windows hiện sai tiếng Việt)
+- Xuống dòng trong ghi chú được làm phẳng thành `;` (trước đây làm vỡ file khi đọc lại)
+- Chấp nhận số thập phân kiểu Việt `6,1` lẫn `6.1`
+- Dòng hỏng bị bỏ qua thay vì làm hỏng cả lần nhập
+
+**Tương thích ngược:** file CSV 8 cột do bản cũ xuất ra **vẫn nhập được bình thường**; 3 cột thiếu trả về `null` (không phải `0`).
+
+**`CsvExportHelper.kt`** — giữ nguyên API công khai (2 call site trong `DateListScreen` không phải sửa), chỉ còn là lớp mỏng xử lý URI. Bỏ `printStackTrace()` thay bằng `Log.e`.
+
+**`LogEntryCsvTest.kt` (mới, 11 test)** — trong đó có test hồi quy riêng cho đúng lỗi này (`blood pressure and heart rate survive a round trip`), test đọc file định dạng cũ, test dấu phẩy trong ghi chú, test `null` không bị biến thành `0`.
+
+## Khuyến nghị vận hành cho phương án 1
+
+Vì không có lưới an toàn tự động, nên:
+
+1. **Trước khi gỡ/cài lại app**: vào màn hình nhật ký → menu ⋮ → xuất CSV; vào màn hình thuốc → menu ⋮ → xuất cả đơn thuốc và lịch sử uống thuốc. Lưu ra Google Drive hoặc gửi cho chính mình qua Zalo/email.
+2. **Định kỳ** (ví dụ mỗi tháng): làm như trên. Bản sao lưu tự động trong `filesDir` chỉ chống được mất dữ liệu khi *nâng cấp*, không chống được *gỡ cài đặt*.
+3. Nâng cấp app qua APK mới (không gỡ app) thì **an toàn** — migration đã lo, không cần thao tác gì.
+
+## Việc còn dang dở
+
+- `exportSchema` vẫn chưa bật được (làm fail build, đã revert). Không ảnh hưởng an toàn dữ liệu hiện tại.
+- Chưa có nhắc nhở tự động "đã lâu chưa sao lưu". Nếu bạn muốn, tôi có thể thêm banner nhắc khi quá N ngày chưa xuất CSV — với phương án 1 thì tính năng này khá đáng giá.
