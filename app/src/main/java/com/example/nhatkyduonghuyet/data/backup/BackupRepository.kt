@@ -369,16 +369,16 @@ class BackupRepository @Inject constructor(
             return@withContext BackupResult.Failure("Chưa có dữ liệu để xuất.")
         }
 
-        val created = storage.createFileInFolder(
-            folder = folder,
+        val createResult = storage.createFileInFolder(
+            uri = folder,
             displayName = suggestedBundleName(),
             mimeType = BackupBundle.MIME_TYPE
-        ).getOrElse {
-            // Usually means the user deleted the folder or revoked access.
-            return@withContext BackupResult.Failure(
-                "Không ghi được vào thư mục đã chọn: ${it.message}"
+        )
+        // Usually means the user deleted the folder or revoked access.
+        val created = createResult.getOrNull()
+            ?: return@withContext BackupResult.Failure(
+                "Không ghi được vào thư mục đã chọn: ${createResult.exceptionOrNull()?.message}"
             )
-        }
 
         val written = storage.writeBytesToUri(created, BackupBundle.pack(snapshot))
         if (written.isSuccess) {
