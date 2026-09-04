@@ -19,7 +19,7 @@ người dùng tự xuất file ra ngoài trở nên dễ và khó quên.
 |---|---|---|
 | Nâng cấp app làm hỏng schema | Room migration + bản sao theo phiên bản | Có |
 | App tự xoá/ghi đè dữ liệu do lỗi | Bản sao cuộn trong `filesDir` | Có |
-| Gỡ app, đổi máy, mất máy | Người dùng xuất file CSV ra ngoài | **Không** |
+| Gỡ app, đổi máy, mất máy | Xuất tệp sao lưu ra ngoài | Thủ công **hoặc** tự động hằng tuần |
 
 Lớp 1 và 2 nằm hoàn toàn trong bộ nhớ riêng của app, nên chúng **cũng chết theo
 khi gỡ app**. Chỉ lớp 3 sống sót. Tài liệu và giao diện đều phải nói thẳng điều
@@ -87,6 +87,45 @@ file. Nhờ đó nút "Khôi phục" chỉ cần một cái: người dùng ch�
   dòng và bỏ qua bao nhiêu dòng lỗi. Nhập vào 0 dòng được báo là *thất bại*, chứ
   không phải "xong" — vì hai trường hợp đó với người dùng là khác nhau hoàn toàn.
 
+### `BackupBundle` — xuất gộp thành một tệp
+
+Trước đây xuất là ba hộp thoại lưu file riêng. Ai làm được hai cái rồi bị phân
+tâm sẽ có một bản sao lưu thiếu mà **không hề biết**. Bản gộp là được ăn cả ngã
+về không: một thao tác, một tệp, chứa mọi thứ.
+
+Chọn ZIP thay vì "một CSV lớn có dấu phân đoạn" vì các tệp bên trong vẫn là CSV
+bình thường — giải nén ra là mở được bằng Excel, đúng lý do ban đầu chọn CSV.
+Trong tệp nén còn kèm `DOC_TRUOC_KHI_MO.txt` hướng dẫn cách khôi phục, phòng khi
+người dùng mở lại sau nhiều tháng.
+
+Nút "Khôi phục" vẫn chỉ có **một**: `BackupBundle.isBundle()` nhận dạng ZIP theo
+magic bytes, nên người dùng chọn tệp `.zip` hay một tệp `.csv` lẻ đều được, không
+cần biết mình đang cầm loại nào.
+
+### Xuất tự động hằng tuần — `AutoExportWorker`
+
+Đây là lưới an toàn cho trường hợp phổ biến nhất: người đọc lời nhắc, định xuất
+file, rồi quên.
+
+Điểm kỹ thuật quyết định hình dạng tính năng này: **một tiến trình nền không thể
+tự ghi file ra bất kỳ đâu**. Quyền ghi qua SAF gắn với thao tác của người dùng.
+Vì vậy xuất tự động là *opt-in theo thư mục*: người dùng chọn thư mục một lần,
+app giữ quyền bằng `takePersistableUriPermission`, từ đó job hằng tuần mới ghi
+được. Nói cách khác, **thư mục chính là cái công tắc** — nên giao diện hỏi thẳng
+"chọn thư mục" chứ không phải một nút bật/tắt trống rỗng.
+
+Các quyết định khác:
+
+- **Bỏ qua nếu người dùng vừa tự xuất trong vòng 7 ngày.** Mục đích là bảo vệ
+  người hay quên, không phải rải bản trùng vào Drive của người cẩn thận.
+- **Chỉ giữ 8 bản tự động gần nhất**, tự dọn bản cũ.
+- **Thất bại thì báo bằng thông báo hệ thống.** Một cơ chế sao lưu tự động hỏng
+  âm thầm còn tệ hơn không có, vì người dùng sẽ đinh ninh mình được bảo vệ.
+- Giao diện khuyến nghị chọn thư mục **có đồng bộ đám mây**: bản tự động ghi vào
+  bộ nhớ máy vẫn mất cùng máy.
+- Worker dùng Hilt `EntryPoint` thay vì `@HiltWorker`, theo đúng kiểu các worker
+  sẵn có trong app, để khỏi thêm `hilt-work` và `WorkerFactory` riêng cho một job.
+
 ### `BackupScreen` — một màn hình duy nhất
 
 Gom mọi thao tác vào một chỗ, và quan trọng hơn là hiển thị **tình trạng**: số
@@ -111,6 +150,8 @@ nguyên vì đã có unit test và chỉ làm đúng một việc là mã hoá/g
   header kể cả khi tên file gây nhiễu, dự phòng theo tên file, snapshot rỗng.
   Có test hồi quy khẳng định huyết áp và nhịp tim không bị mất.
 - `RestoreReportTest` (5 test): khôi phục 0 dòng không được coi là thành công.
+- `BackupBundleTest` (9 test): gộp/bung không mất dòng nào, nhận dạng ZIP theo
+  magic bytes kể cả khi tên file gây nhiễu, bỏ qua mục lạ trong tệp nén.
 
 Toàn bộ là JVM unit test thuần, chạy trong CI. Sandbox không có JDK nên việc
 xác minh đi qua GitHub Actions.
@@ -122,8 +163,10 @@ xác minh đi qua GitHub Actions.
 ## Hướng dẫn cho người dùng
 
 1. Mở **Sao lưu & Khôi phục** từ màn hình nhật ký hoặc màn hình thuốc.
-2. Xuất cả ba file, lưu vào Google Drive hoặc gửi cho chính mình qua email.
-3. Làm lại mỗi tháng — app sẽ hiện cảnh báo đỏ khi đến hạn.
+2. Bấm **"Xuất toàn bộ (1 tệp)"**, lưu vào Google Drive hoặc gửi cho chính mình
+   qua email. Một thao tác là xong cả ba loại dữ liệu.
+3. Bật **"Tự động xuất hằng tuần"** và chọn một thư mục có đồng bộ đám mây. Từ
+   đó app tự lo, và sẽ bỏ qua những tuần bạn đã tự xuất.
 4. **Bắt buộc xuất file trước khi gỡ app hoặc đổi máy.**
-5. Trên máy mới: cài app, mở màn hình trên, chọn "Khôi phục" và lần lượt chọn
-   từng file.
+5. Trên máy mới: cài app, mở màn hình trên, chọn "Khôi phục" rồi chọn tệp `.zip`.
+   Không cần giải nén.
