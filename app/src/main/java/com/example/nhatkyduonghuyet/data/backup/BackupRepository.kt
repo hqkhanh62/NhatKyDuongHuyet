@@ -94,7 +94,7 @@ class BackupRepository @Inject constructor(
             .onEach { snapshot ->
                 if (snapshot.isEmpty) return@onEach
                 withContext(Dispatchers.IO) {
-                    storage.writeRolling(snapshot).onSuccess { markBackedUp() }
+                    if (storage.writeRolling(snapshot).isSuccess) markBackedUp()
                 }
             }
             .launchIn(scope)
@@ -110,11 +110,11 @@ class BackupRepository @Inject constructor(
         if (prefs.getString(KEY_LAST_VERSION, null) == currentVersion) return@withContext
         val snapshot = snapshot()
         if (!snapshot.isEmpty) {
-            storage.writeVersioned(currentVersion, snapshot)
-                .onSuccess {
-                    Log.i(TAG, "Da sao luu truoc khi chay phien ban $currentVersion")
-                    markBackedUp()
-                }
+            val written = storage.writeVersioned(currentVersion, snapshot)
+            if (written.isSuccess) {
+                Log.i(TAG, "Da sao luu truoc khi chay phien ban $currentVersion")
+                markBackedUp()
+            }
         }
         prefs.edit().putString(KEY_LAST_VERSION, currentVersion).apply()
     }
@@ -124,13 +124,15 @@ class BackupRepository @Inject constructor(
         if (snapshot.isEmpty) {
             return@withContext BackupResult.Failure("Chưa có dữ liệu nào để sao lưu.")
         }
-        storage.writeRolling(snapshot).fold(
-            onSuccess = {
-                markBackedUp()
-                BackupResult.Success("Đã sao lưu ${snapshot.totalRows} dòng dữ liệu.")
-            },
-            onFailure = { BackupResult.Failure("Sao lưu thất bại: ${it.message}") }
-        )
+        val written = storage.writeRolling(snapshot)
+        if (written.isSuccess) {
+            markBackedUp()
+            BackupResult.Success("Đã sao lưu ${snapshot.totalRows} dòng dữ liệu.")
+        } else {
+            BackupResult.Failure(
+                "Sao lưu thất bại: ${written.exceptionOrNull()?.message}"
+            )
+        }
     }
 
     // ---------------------------------------------------------------- layer 3
@@ -142,13 +144,13 @@ class BackupRepository @Inject constructor(
     suspend fun export(part: BackupPart, uri: Uri): BackupResult = withContext(Dispatchers.IO) {
         val snapshot = snapshot()
         val content = BackupCsv.encode(part, snapshot)
-        storage.writeToUri(uri, content).fold(
-            onSuccess = {
-                markExported()
-                BackupResult.Success("Đã xuất ${part.label.lowercase()}.")
-            },
-            onFailure = { BackupResult.Failure("Xuất thất bại: ${it.message}") }
-        )
+        val written = storage.writeToUri(uri, content)
+        if (written.isSuccess) {
+            markExported()
+            BackupResult.Success("Đã xuất ${part.label.lowercase()}.")
+        } else {
+            BackupResult.Failure("Xuất thất bại: ${written.exceptionOrNull()?.message}")
+        }
     }
 
     /**
@@ -157,22 +159,21 @@ class BackupRepository @Inject constructor(
      */
     suspend fun restoreFromUri(uri: Uri, displayName: String?): BackupResult =
         withContext(Dispatchers.IO) {
-            storage.readFromUri(uri).fold(
-                onSuccess = { content ->
-                    val part = BackupCsv.detectPart(displayName, content)
-                        ?: return@fold BackupResult.Failure(
-                            "Không nhận dạng được file. Hãy chọn file CSV do chính app xuất ra."
-                        )
-                    applySnapshot(BackupCsv.decode(part, content)).let { report ->
-                        if (report.touchedAnything) {
-                            BackupResult.Success("${part.label}: ${report.describe()}")
-                        } else {
-                            BackupResult.Failure(report.describe())
-                        }
-                    }
-                },
-                onFailure = { BackupResult.Failure("Không đọc được file: ${it.message}") }
-            )
+            val read = storage.readFromUri(uri)
+            val content = read.getOrNull()
+                ?: return@withContext BackupResult.Failure(
+                    "Không đọc được file: ${read.exceptionOrNull()?.message}"
+                )
+            val part = BackupCsv.detectPart(displayName, content)
+                ?: return@withContext BackupResult.Failure(
+                    "Không nhận dạng được file. Hãy chọn file CSV do chính app xuất ra."
+                )
+            val report = applySnapshot(BackupCsv.decode(part, content))
+            if (report.touchedAnything) {
+                BackupResult.Success("${part.label}: ${report.describe()}")
+            } else {
+                BackupResult.Failure(report.describe())
+            }
         }
 
     /** Restores every dataset from the rolling snapshot on disk. */
