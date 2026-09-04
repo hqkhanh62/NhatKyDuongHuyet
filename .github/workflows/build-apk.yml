@@ -25,7 +25,18 @@ jobs:
         run: chmod +x gradlew
 
       - name: Run unit tests
-        run: ./gradlew testDebugUnitTest
+        shell: bash
+        run: |
+          set -o pipefail
+          # Mirror Kotlin compile errors into GitHub annotations so they are
+          # readable even when raw job logs cannot be downloaded.
+          ./gradlew testDebugUnitTest 2>&1 | tee /tmp/gradle.log || {
+            echo "--- compile errors ---"
+            grep -E "^e: |error:" /tmp/gradle.log | head -40 | while read -r line; do
+              echo "::error::${line}"
+            done
+            exit 1
+          }
 
       - name: Summarize unit test results
         if: always()
