@@ -59,6 +59,19 @@ android {
         versionName buildVersionName
 
         buildConfigField "String", "GEMINI_BACKEND_URL", "\"${escapedGeminiBackendUrl}\""
+
+        // Room writes the schema JSON here so future migrations can be
+        // diffed and tested instead of guessed at.
+        javaCompileOptions {
+            annotationProcessorOptions {
+                arguments += ["room.schemaLocation": "$projectDir/schemas".toString()]
+            }
+        }
+    }
+
+    sourceSets {
+        // Ship the exported schemas to instrumented tests (MigrationTestHelper).
+        androidTest.assets.srcDirs += files("$projectDir/schemas".toString())
     }
 
     buildTypes {
