@@ -27,6 +27,35 @@ jobs:
       - name: Run unit tests
         run: ./gradlew testDebugUnitTest
 
+      - name: Summarize unit test results
+        if: always()
+        shell: bash
+        run: |
+          shopt -s nullglob globstar
+          FILES=(app/build/test-results/testDebugUnitTest/*.xml)
+          if [ "${#FILES[@]}" -eq 0 ]; then
+            echo "::error::Khong tim thay ket qua unit test - co the test da bi bo qua"
+            exit 1
+          fi
+          python3 - "${FILES[@]}" <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import sys, xml.etree.ElementTree as ET
+          tot=fail=err=skip=0
+          rows=[]
+          for f in sys.argv[1:]:
+              r=ET.parse(f).getroot()
+              t=int(r.get('tests',0)); fl=int(r.get('failures',0))
+              e=int(r.get('errors',0)); s=int(r.get('skipped',0))
+              tot+=t; fail+=fl; err+=e; skip+=s
+              rows.append((r.get('name',f), t, fl, e, s))
+          print("## Ket qua unit test\n")
+          print("| Lop test | Tong | Fail | Error | Skip |")
+          print("|---|---:|---:|---:|---:|")
+          for n,t,fl,e,s in sorted(rows):
+              print(f"| {n} | {t} | {fl} | {e} | {s} |")
+          print(f"\n**Tong cong: {tot} test, {fail} fail, {err} error, {skip} skip**")
+          PY
+          cat "$GITHUB_STEP_SUMMARY"
+
       - name: Upload unit test report
         if: always()
         uses: actions/upload-artifact@v4
