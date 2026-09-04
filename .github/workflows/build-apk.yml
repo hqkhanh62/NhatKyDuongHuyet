@@ -2,9 +2,10 @@ name: Build Android APK
 
 on:
   push:
-    branches: [ "master" ]
+    branches: [ "master", "main", "arena/**" ]
   pull_request:
-    branches: [ "master" ]
+    branches: [ "master", "main" ]
+  workflow_dispatch:
 
 jobs:
   build:
@@ -25,6 +26,14 @@ jobs:
 
       - name: Run unit tests
         run: ./gradlew testDebugUnitTest
+
+      - name: Upload unit test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-report
+          path: app/build/reports/tests/testDebugUnitTest
+          if-no-files-found: ignore
 
       - name: Build with Gradle
         run: ./gradlew assembleDebug
