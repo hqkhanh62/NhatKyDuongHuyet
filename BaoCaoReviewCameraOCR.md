@@ -433,9 +433,11 @@ python3 tools/ocr-review/pixel_reader_sim.py   # mô phỏng PixelGlucoseReader 
 python3 tools/ocr-review/text_parser_sim.py    # kiểm thử extractGlucose với các chuỗi OCR thực tế
 ```
 
-Hai script là bản dựng lại **1:1** logic Kotlin (cùng hằng số, cùng công thức), dùng để (a) chứng
-minh lỗi hiện tại và (b) làm bàn thử nhanh khi hiệu chỉnh thuật toán mới trước khi viết lại bằng
-Kotlin. Chỉ cần `numpy`.
+Hai script là bản dựng lại **1:1** thuật toán **trước khi sửa** (cùng hằng số, cùng công thức),
+giữ lại làm bằng chứng cho các số liệu ở mục 2. Chỉ cần `numpy`.
+
+Thuật toán **sau khi sửa** được kiểm chứng bằng unit test Kotlin chạy trong CI:
+`./gradlew testDebugUnitTest` (xem mục II.6).
 
 ---
 
