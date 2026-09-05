@@ -2,37 +2,41 @@ package com.example.nhatkyduonghuyet.ml
 
 import android.graphics.Bitmap
 import android.graphics.Matrix
-import androidx.camera.core.ImageProxy
+import kotlin.math.max
 
+/**
+ * Android glue around the pure image pipeline: bitmap ↔ luminance conversion, cropping and
+ * the pre-processing that makes seven-segment digits readable for ML Kit.
+ */
 object ImageUtils {
 
-    /** Width in px of the bitmap handed to ML Kit after enhancement. */
-    const val OCR_TARGET_WIDTH = 1280
+    /** Width the OCR bitmap is upscaled to before it is handed to ML Kit. */
+    const val OCR_TARGET_WIDTH = 1024
+
+    /** Longest side of the buffer handed to the seven-segment reader. */
+    const val SEGMENT_TARGET_WIDTH = 360
+
+    /** Fallback ROI when the caller has no guide frame geometry. */
+    val DISPLAY_ROI = NormalizedRect(left = 0.20f, top = 0.30f, right = 0.80f, bottom = 0.70f)
 
     /**
-     * Fallback ROI for the main glucose value on the On Call Plus display.
-     * Camera callers pass the ROI derived from the on-screen green frame so the
-     * analysis matches exactly what the user framed.
+     * Crops the normalised ROI out of [source] and rotates the result upright in one step.
+     * Cropping first means the expensive rotation only touches the pixels we actually use
+     * (the previous code rotated the full 1080p frame four times a second).
      */
-    val DISPLAY_ROI = NormalizedRect(
-        left = 0.20f,
-        top = 0.30f,
-        right = 0.80f,
-        bottom = 0.70f
-    )
-
-    data class NormalizedRect(
-        val left: Float,
-        val top: Float,
-        val right: Float,
-        val bottom: Float
-    )
-
-    fun rotateBitmap(source: Bitmap, degrees: Int): Bitmap {
-        if (degrees == 0) return source
-        val matrix = Matrix()
-        matrix.postRotate(degrees.toFloat())
-        return Bitmap.createBitmap(source, 0, 0, source.width, source.height, matrix, true)
+    fun cropRotated(source: Bitmap, roi: NormalizedRect, rotationDegrees: Int): Bitmap {
+        val upright = rotationDegrees % 360
+        // The ROI is expressed in upright coordinates; map it back onto the raw frame.
+        val raw = when (upright) {
+            90 -> NormalizedRect(roi.top, 1f - roi.right, roi.bottom, 1f - roi.left)
+            180 -> NormalizedRect(1f - roi.right, 1f - roi.bottom, 1f - roi.left, 1f - roi.top)
+            270 -> NormalizedRect(1f - roi.bottom, roi.left, 1f - roi.top, roi.right)
+            else -> roi
+        }
+        val cropped = cropNormalized(source, raw)
+        if (upright == 0) return cropped
+        val matrix = Matrix().apply { postRotate(upright.toFloat()) }
+        return Bitmap.createBitmap(cropped, 0, 0, cropped.width, cropped.height, matrix, true)
     }
 
     fun cropNormalized(source: Bitmap, roi: NormalizedRect): Bitmap {
@@ -40,86 +44,72 @@ object ImageUtils {
         val top = (source.height * roi.top).toInt().coerceIn(0, source.height - 1)
         val right = (source.width * roi.right).toInt().coerceIn(left + 1, source.width)
         val bottom = (source.height * roi.bottom).toInt().coerceIn(top + 1, source.height)
-
         return Bitmap.createBitmap(source, left, top, right - left, bottom - top)
     }
 
+    /** Downscales so the longest side is at most [maxWidth] px (keeps the aspect ratio). */
+    fun downscale(source: Bitmap, maxWidth: Int): Bitmap {
+        if (source.width <= maxWidth) return source
+        val height = max(1, source.height * maxWidth / source.width)
+        return Bitmap.createScaledBitmap(source, maxWidth, height, true)
+    }
+
+    /** Row-major luminance buffer (0..255). */
+    fun toLuminance(source: Bitmap): IntArray {
+        val width = source.width
+        val height = source.height
+        val pixels = IntArray(width * height)
+        source.getPixels(pixels, 0, width, 0, 0, width, height)
+        val luma = IntArray(pixels.size)
+        for (i in pixels.indices) {
+            val pixel = pixels[i]
+            val r = (pixel shr 16) and 0xFF
+            val g = (pixel shr 8) and 0xFF
+            val b = pixel and 0xFF
+            luma[i] = (r * 299 + g * 587 + b * 114) / 1000
+        }
+        return luma
+    }
+
     /**
-     * Prepares a cropped meter-display bitmap for ML Kit OCR:
-     * grayscale conversion, percentile contrast stretching and upscaling.
+     * Turns a photographed LCD into something a Latin OCR model can actually read:
+     * Otsu binarisation with polarity correction, a morphological closing that welds the
+     * seven segments of a glyph into one solid stroke, a white margin and an upscale.
      *
-     * Low-contrast LCD digits become large, high-contrast glyphs which text
-     * recognition reads far more reliably, especially after the display crop
-     * is taken from a handheld camera frame.
+     * The closing step is the important one — without it ML Kit sees seven disconnected
+     * bars per digit instead of a character.
      */
     fun enhanceForOcr(source: Bitmap, targetWidth: Int = OCR_TARGET_WIDTH): Bitmap {
         val width = source.width
         val height = source.height
         if (width <= 0 || height <= 0) return source
 
-        val pixels = IntArray(width * height)
-        source.getPixels(pixels, 0, width, 0, 0, width, height)
-
-        val luminance = IntArray(pixels.size)
-        val histogram = IntArray(LUMINANCE_LEVELS)
-        var index = 0
-        for (pixel in pixels) {
-            val r = (pixel shr 16) and 0xFF
-            val g = (pixel shr 8) and 0xFF
-            val b = pixel and 0xFF
-            val luma = (r * 299 + g * 587 + b * 114) / 1000
-            luminance[index++] = luma
-            histogram[luma]++
+        val luma = toLuminance(source)
+        var mask = ImageOps.binarize(luma, luma.size)
+        val stroke = ImageOps.strokeWidth(mask, width, height)
+        if (stroke >= 2) {
+            mask = ImageOps.close(mask, width, height, max(1, (stroke * 0.45f).toInt()))
         }
 
-        // Percentile stretch: ignore the darkest/brightest tails so small
-        // glare spots or shadows do not compress the useful contrast range.
-        val total = pixels.size
-        val lowCut = (total * CONTRAST_CUT_LOW).toInt()
-        val highCut = (total * CONTRAST_CUT_HIGH).toInt()
-        var accumulator = 0
-        var low = 0
-        for (value in 0 until LUMINANCE_LEVELS) {
-            accumulator += histogram[value]
-            if (accumulator >= lowCut) {
-                low = value
-                break
+        // Always hand ML Kit dark text on a white background, with a quiet margin.
+        val margin = max(8, height / 12)
+        val outWidth = width + margin * 2
+        val outHeight = height + margin * 2
+        val pixels = IntArray(outWidth * outHeight) { WHITE }
+        for (y in 0 until height) {
+            val srcRow = y * width
+            val dstRow = (y + margin) * outWidth + margin
+            for (x in 0 until width) {
+                if (mask[srcRow + x]) pixels[dstRow + x] = BLACK
             }
         }
-        accumulator = 0
-        var high = LUMINANCE_LEVELS - 1
-        for (value in 0 until LUMINANCE_LEVELS) {
-            accumulator += histogram[value]
-            if (accumulator >= highCut) {
-                high = value
-                break
-            }
-        }
-        if (high - low < MIN_CONTRAST_RANGE) {
-            high = (low + MIN_CONTRAST_RANGE).coerceAtMost(LUMINANCE_LEVELS - 1)
-        }
-        val range = (high - low).coerceAtLeast(1).toFloat()
 
-        for (i in pixels.indices) {
-            val stretched = ((luminance[i] - low) / range * 255f)
-                .coerceIn(0f, 255f)
-                .toInt()
-            val gray = (0xFF shl 24) or (stretched shl 16) or (stretched shl 8) or stretched
-            pixels[i] = gray
-        }
-
-        val grayBitmap = Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888)
-        if (width == targetWidth) return grayBitmap
-
-        val scaledHeight = (height.toLong() * targetWidth / width)
-            .coerceAtLeast(1L)
-            .coerceAtMost(Int.MAX_VALUE.toLong())
-            .toInt()
-        return Bitmap.createScaledBitmap(grayBitmap, targetWidth, scaledHeight, true)
+        val bitmap = Bitmap.createBitmap(pixels, outWidth, outHeight, Bitmap.Config.ARGB_8888)
+        if (outWidth >= targetWidth) return bitmap
+        val scaledHeight = max(1, outHeight * targetWidth / outWidth)
+        return Bitmap.createScaledBitmap(bitmap, targetWidth, scaledHeight, true)
     }
 
-    private const val LUMINANCE_LEVELS = 256
-    private const val CONTRAST_CUT_LOW = 0.02f
-    private const val CONTRAST_CUT_HIGH = 0.98f
-    private const val MIN_CONTRAST_RANGE = 24
+    private const val WHITE = 0xFFFFFFFF.toInt()
+    private const val BLACK = 0xFF000000.toInt()
 }

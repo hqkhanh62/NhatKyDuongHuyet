@@ -2,6 +2,33 @@ package com.example.nhatkyduonghuyet.ml
 
 import kotlin.math.max
 
+/**
+ * Region of interest expressed as fractions of an image's width and height.
+ * Lives in the pure layer so geometry can be unit-tested without Android.
+ */
+data class NormalizedRect(
+    val left: Float,
+    val top: Float,
+    val right: Float,
+    val bottom: Float
+) {
+    fun expandVertically(fraction: Float): NormalizedRect {
+        val padding = (bottom - top) * fraction
+        return NormalizedRect(
+            left = left,
+            top = (top - padding).coerceAtLeast(0f),
+            right = right,
+            bottom = (bottom + padding).coerceAtMost(1f)
+        )
+    }
+
+    fun inset(fraction: Float): NormalizedRect {
+        val padX = (right - left) * fraction
+        val padY = (bottom - top) * fraction
+        return NormalizedRect(left + padX, top + padY, right - padX, bottom - padY)
+    }
+}
+
 /** Axis-aligned rectangle in preview-view coordinates (px or dp). */
 data class FrameRect(
     val left: Float,
@@ -85,7 +112,7 @@ object ScannerGeometry {
         viewHeight: Float,
         imageWidth: Float,
         imageHeight: Float
-    ): ImageUtils.NormalizedRect? {
+    ): NormalizedRect? {
         if (viewWidth <= 0f || viewHeight <= 0f) return null
         if (imageWidth <= 0f || imageHeight <= 0f) return null
         if (frame.width <= 0f || frame.height <= 0f) return null
@@ -103,6 +130,6 @@ object ScannerGeometry {
         val bottom = toImageY(frame.bottom)
         if (right <= left || bottom <= top) return null
 
-        return ImageUtils.NormalizedRect(left, top, right, bottom)
+        return NormalizedRect(left, top, right, bottom)
     }
 }

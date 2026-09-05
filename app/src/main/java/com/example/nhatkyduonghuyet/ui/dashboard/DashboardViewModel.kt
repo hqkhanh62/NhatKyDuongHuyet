@@ -131,15 +131,21 @@ class DashboardViewModel @Inject constructor(
         }
     }
 
-    fun onGlucoseScanned(result: ScannedGlucoseResult) {
+    /**
+     * Stores a scanned reading **after the user confirmed it** on the scanner screen.
+     *
+     * @param afterMeal the user's explicit choice; the previous `hour % 2` heuristic could
+     * silently overwrite the wrong field of an existing entry.
+     */
+    fun onGlucoseScanned(result: ScannedGlucoseResult, afterMeal: Boolean = false) {
         viewModelScope.launch {
             val now = Date()
             val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
             val hf = SimpleDateFormat("HH:mm", Locale.getDefault())
-            
+
             val finalTime = result.time ?: hf.format(now)
             var finalDate = result.date ?: sdf.format(now)
-            
+
             // Validate date format yyyy-MM-dd
             try {
                 val parts = finalDate.split("-")
@@ -147,12 +153,10 @@ class DashboardViewModel @Inject constructor(
                     val year = parts[0].toInt()
                     val month = parts[1].toInt()
                     val day = parts[2].toInt()
-                    
+
                     if (month > 12 && day <= 12) {
-                        // Swapped month and day (yyyy-dd-MM)
                         finalDate = "%04d-%02d-%02d".format(year, day, month)
                     } else if (month > 12) {
-                        // Still invalid month, fallback to today
                         finalDate = sdf.format(now)
                     }
                 }
@@ -162,15 +166,13 @@ class DashboardViewModel @Inject constructor(
 
             val hour = finalTime.substringBefore(':').toIntOrNull()
                 ?: Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
-            
-            var session = "Sáng"
+
             val scannedVal = result.value.toDouble()
-            
-            when {
-                hour < 10 -> session = "Sáng"
-                hour in 10..15 -> session = "Trưa"
-                hour in 16..19 -> session = "Chiều"
-                else -> session = "Tối"
+            val session = when {
+                hour < 10 -> "Sáng"
+                hour in 10..15 -> "Trưa"
+                hour in 16..19 -> "Chiều"
+                else -> "Tối"
             }
 
             val existingEntries = repo.getLogsByDate(finalDate).first()
@@ -186,24 +188,22 @@ class DashboardViewModel @Inject constructor(
             val existing = existingEntries.find { it.session == session }
 
             if (existing != null) {
-                // Update existing record
-                val updated = if (hour % 2 == 0) { // Simple heuristic or just check which one is null
-                     if (existing.bgBefore == null) existing.copy(bgBefore = scannedVal, time = finalTime)
-                     else existing.copy(bgAfter = scannedVal, time = finalTime)
+                // The user said whether this is a before- or after-meal reading; never guess.
+                val updated = if (afterMeal) {
+                    existing.copy(bgAfter = scannedVal, time = finalTime)
                 } else {
-                     if (existing.bgAfter == null) existing.copy(bgAfter = scannedVal, time = finalTime)
-                     else existing.copy(bgBefore = scannedVal, time = finalTime)
+                    existing.copy(bgBefore = scannedVal, time = finalTime)
                 }
                 repo.insertLog(updated)
             } else {
-                // Create new record
                 repo.insertLog(
                     LogEntry(
                         date = finalDate,
                         session = session,
                         time = finalTime,
-                        bgBefore = scannedVal,
-                        note = "Auto-scanned via AI Camera"
+                        bgBefore = if (afterMeal) null else scannedVal,
+                        bgAfter = if (afterMeal) scannedVal else null,
+                        note = "Quét bằng camera (đã xác nhận)"
                     )
                 )
             }

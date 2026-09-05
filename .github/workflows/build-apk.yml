@@ -2,9 +2,12 @@ name: Build Android APK
 
 on:
   push:
-    branches: [ "master" ]
+    # The repository's default branch is "main"; the old "master" filter meant this
+    # workflow never ran. Agent branches are built too so changes are verified early.
+    branches: [ "main", "master", "arena/**" ]
   pull_request:
-    branches: [ "master" ]
+    branches: [ "main", "master" ]
+  workflow_dispatch:
 
 jobs:
   build:

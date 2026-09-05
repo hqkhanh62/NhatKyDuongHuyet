@@ -11,7 +11,10 @@ import androidx.camera.core.CameraSelector
 import androidx.camera.core.FocusMeteringAction
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
-import androidx.camera.core.SurfaceOrientedMeteringPointFactory
+import androidx.camera.core.UseCaseGroup
+import androidx.camera.core.resolutionselector.AspectRatioStrategy
+import androidx.camera.core.resolutionselector.ResolutionSelector
+import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.Canvas
@@ -24,8 +27,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.FlashOff
+import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -55,28 +63,27 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import com.example.nhatkyduonghuyet.ml.GlucoseScanner
-import com.example.nhatkyduonghuyet.ml.ScannerGeometry
+import com.example.nhatkyduonghuyet.ml.MeterStatus
+import com.example.nhatkyduonghuyet.ml.StabilityVoter
+import com.example.nhatkyduonghuyet.ml.ScanOutcome
+import com.example.nhatkyduonghuyet.ml.ScanRejection
 import com.example.nhatkyduonghuyet.ml.ScannedGlucoseResult
-import java.util.ArrayDeque
+import com.example.nhatkyduonghuyet.ml.ScannerGeometry
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
-import kotlin.math.abs
 
 /**
- * Shared live camera glucose scanner.
+ * Shared live camera glucose scanner used by the full-screen scanner and the entry dialog.
  *
- * Used by both the full-screen ScannerScreen (dashboard) and the
- * CameraScannerDialog (day detail), so both surfaces show the same guide
- * frame size and run the same OCR pipeline.
- *
- * Key accuracy features:
- * - The analyzed crop is exactly the region shown inside the green guide
- *   frame (WYSIWYG), derived from the preview's FILL_CENTER transform.
- * - Tap-to-focus on the meter display.
- * - A value is delivered only after a stability window of agreeing frames.
+ * Accuracy-relevant behaviour:
+ *  * Preview and analysis are bound in one [UseCaseGroup] with the preview's view port, so the
+ *    crop that is analysed really is what the green frame shows.
+ *  * Frames are rejected with a reason (blur, glare, flat) and the reason is shown to the user.
+ *  * A value is delivered only after [STABILITY_REQUIRED_MATCHES] frames report exactly the
+ *    same number and no other value contradicts them inside the window.
  */
 @OptIn(androidx.camera.core.ExperimentalGetImage::class)
 @Composable
@@ -96,7 +103,7 @@ fun GlucoseCameraScanner(
     val isProcessing = remember { AtomicBoolean(false) }
     val hasDeliveredResult = remember { AtomicBoolean(false) }
     val lastAttemptAt = remember { AtomicLong(0L) }
-    val recentValues = remember { ArrayDeque<Float>() }
+    val voter = remember { StabilityVoter() }
     val cameraRef = remember { AtomicReference<Camera?>(null) }
     val previewViewRef = remember { AtomicReference<PreviewView?>(null) }
     val cameraProviderRef = remember { AtomicReference<ProcessCameraProvider?>(null) }
@@ -112,8 +119,9 @@ fun GlucoseCameraScanner(
     }
     var viewSize by remember { mutableStateOf(IntSize.Zero) }
     var resultDelivered by remember { mutableStateOf(false) }
-    var noResultHint by remember { mutableStateOf(false) }
+    var hint by remember { mutableStateOf<String?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var torchOn by remember { mutableStateOf(false) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -123,11 +131,22 @@ fun GlucoseCameraScanner(
         if (!permissionGranted) permissionLauncher.launch(Manifest.permission.CAMERA)
     }
 
+    // Re-trigger auto focus periodically: CameraX cancels a focus action after a few seconds
+    // and a meter held by hand drifts out of focus, which used to produce garbage readings.
     LaunchedEffect(permissionGranted) {
-        if (permissionGranted) {
-            kotlinx.coroutines.delay(SCAN_FEEDBACK_TIMEOUT_MS)
-            if (!hasDeliveredResult.get() && errorMessage == null) {
-                noResultHint = true
+        while (permissionGranted && !hasDeliveredResult.get()) {
+            kotlinx.coroutines.delay(REFOCUS_INTERVAL_MS)
+            val previewView = previewViewRef.get() ?: continue
+            val camera = cameraRef.get() ?: continue
+            if (previewView.width <= 0 || previewView.height <= 0) continue
+            runCatching {
+                val point = previewView.meteringPointFactory
+                    .createPoint(previewView.width / 2f, previewView.height / 2f)
+                camera.cameraControl.startFocusAndMetering(
+                    FocusMeteringAction.Builder(point)
+                        .setAutoCancelDuration(REFOCUS_HOLD_SECONDS, TimeUnit.SECONDS)
+                        .build()
+                )
             }
         }
     }
@@ -139,8 +158,6 @@ fun GlucoseCameraScanner(
         }
     }
 
-    // Preferred guide-frame width: a fixed fraction of the screen width so the
-    // dialog scanner and the full-screen scanner show the same frame size.
     val preferredFrameWidthPx = with(density) {
         ScannerGeometry.preferredFrameWidth(configuration.screenWidthDp.toFloat()).dp.toPx()
     }
@@ -162,10 +179,7 @@ fun GlucoseCameraScanner(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            Text(
-                "Cần cấp quyền Camera để quét máy đo.",
-                textAlign = TextAlign.Center
-            )
+            Text("Cần cấp quyền Camera để quét máy đo.", textAlign = TextAlign.Center)
             Spacer(modifier = Modifier.height(12.dp))
             Button(onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) }) {
                 Text("Cấp quyền camera")
@@ -183,14 +197,13 @@ fun GlucoseCameraScanner(
             }
             .pointerInput(Unit) {
                 detectTapGestures { tapOffset ->
-                    // Tap-to-focus on the meter display for a sharper OCR crop.
                     val previewView = previewViewRef.get() ?: return@detectTapGestures
                     val camera = cameraRef.get() ?: return@detectTapGestures
                     val focusPoint = previewView.meteringPointFactory
                         .createPoint(tapOffset.x, tapOffset.y)
                     camera.cameraControl.startFocusAndMetering(
                         FocusMeteringAction.Builder(focusPoint)
-                            .setAutoCancelDuration(5, TimeUnit.SECONDS)
+                            .setAutoCancelDuration(REFOCUS_HOLD_SECONDS, TimeUnit.SECONDS)
                             .build()
                     )
                 }
@@ -208,16 +221,26 @@ fun GlucoseCameraScanner(
                     val provider = cameraProviderFuture.get()
                     cameraProviderRef.set(provider)
 
+                    // One resolution strategy for both use cases: if preview and analysis had
+                    // different aspect ratios the analysed crop would not match the frame the
+                    // user sees, and OCR would read the wrong part of the display.
+                    val resolutionSelector = ResolutionSelector.Builder()
+                        .setAspectRatioStrategy(AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY)
+                        .setResolutionStrategy(
+                            ResolutionStrategy(
+                                Size(1920, 1080),
+                                ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER
+                            )
+                        )
+                        .build()
+
                     val preview = Preview.Builder()
-                        .setTargetResolution(Size(1280, 720))
+                        .setResolutionSelector(resolutionSelector)
                         .build()
                         .also { it.setSurfaceProvider(previewView.surfaceProvider) }
 
                     val imageAnalysis = ImageAnalysis.Builder()
-                        // Higher analysis resolution gives OCR more pixels
-                        // for the display digits; CameraX falls back to the
-                        // closest supported size on low-end devices.
-                        .setTargetResolution(Size(1920, 1080))
+                        .setResolutionSelector(resolutionSelector)
                         .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                         .build()
                         .also { analysis ->
@@ -243,7 +266,6 @@ fun GlucoseCameraScanner(
                                 } catch (_: Exception) {
                                     null
                                 }
-
                                 if (bitmap == null) {
                                     isProcessing.set(false)
                                     imageProxy.close()
@@ -262,9 +284,6 @@ fun GlucoseCameraScanner(
                                     bitmap.height
                                 }
 
-                                // Crop exactly what the on-screen guide frame
-                                // shows: the same geometry the overlay draws,
-                                // mapped through the FILL_CENTER transform.
                                 val analyzerViewSize = viewSizeRef.get()
                                 val roi = ScannerGeometry.computeGuideFrame(
                                     analyzerViewSize.width.toFloat(),
@@ -280,28 +299,41 @@ fun GlucoseCameraScanner(
                                     )
                                 }
 
-                                scanner.processHybrid(
+                                scanner.processFrame(
                                     bitmap,
                                     rotationDegrees,
                                     roi,
-                                    onResult = { result ->
+                                    onOutcome = { outcome ->
                                         isProcessing.set(false)
                                         imageProxy.close()
-                                        if (result != null && !hasDeliveredResult.get()) {
-                                            mainExecutor.execute {
-                                                noResultHint = false
-                                                val stableValue = synchronized(recentValues) {
-                                                    recentValues.addLast(result.value)
-                                                    while (recentValues.size > STABILITY_WINDOW_SIZE) {
-                                                        recentValues.removeFirst()
+                                        if (hasDeliveredResult.get()) return@processFrame
+                                        mainExecutor.execute {
+                                            when (outcome) {
+                                                is ScanOutcome.Reading -> {
+                                                    hint = null
+                                                    val stable = synchronized(voter) {
+                                                        voter.offer(outcome.result.value)
                                                     }
-                                                    findStableValue(recentValues)
+                                                    if (stable != null &&
+                                                        hasDeliveredResult.compareAndSet(false, true)
+                                                    ) {
+                                                        resultDelivered = true
+                                                        onResult(outcome.result.copy(value = stable))
+                                                    }
                                                 }
-                                                if (stableValue != null &&
-                                                    hasDeliveredResult.compareAndSet(false, true)
-                                                ) {
-                                                    resultDelivered = true
-                                                    onResult(result.copy(value = stableValue))
+
+                                                is ScanOutcome.Status -> {
+                                                    synchronized(voter) { voter.clear() }
+                                                    hint = statusHint(outcome.status)
+                                                }
+
+                                                is ScanOutcome.Rejected -> {
+                                                    // An unusable frame must not leave stale
+                                                    // votes behind for the next reading.
+                                                    if (outcome.reason != ScanRejection.NOT_FOUND) {
+                                                        synchronized(voter) { voter.clear() }
+                                                    }
+                                                    hint = rejectionHint(outcome.reason)
                                                 }
                                             }
                                         }
@@ -316,20 +348,21 @@ fun GlucoseCameraScanner(
 
                     try {
                         provider.unbindAll()
+                        val useCaseGroup = UseCaseGroup.Builder()
+                            .addUseCase(preview)
+                            .addUseCase(imageAnalysis)
+                            .apply { previewView.viewPort?.let { setViewPort(it) } }
+                            .build()
                         val camera = provider.bindToLifecycle(
                             lifecycleOwner,
                             CameraSelector.DEFAULT_BACK_CAMERA,
-                            preview,
-                            imageAnalysis
+                            useCaseGroup
                         )
                         cameraRef.set(camera)
                         onCameraBound?.invoke(camera)
-                        val focusFactory = SurfaceOrientedMeteringPointFactory(1f, 1f)
-                        camera.cameraControl.startFocusAndMetering(
-                            FocusMeteringAction.Builder(focusFactory.createPoint(0.5f, 0.5f))
-                                .setAutoCancelDuration(3, TimeUnit.SECONDS)
-                                .build()
-                        )
+                        // A lit LCD is brighter than its surroundings; a small negative bias
+                        // keeps the digits from burning out.
+                        runCatching { camera.cameraControl.setExposureCompensationIndex(-1) }
                     } catch (error: Exception) {
                         Log.e("GlucoseCameraScanner", "Camera binding failed", error)
                         mainExecutor.execute {
@@ -343,29 +376,20 @@ fun GlucoseCameraScanner(
             modifier = Modifier.fillMaxSize()
         )
 
-        // Dimmed scrim outside the guide frame + the green frame itself.
         guideFrame?.let { frame ->
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val scrimColor = Color.Black.copy(alpha = 0.45f)
+                drawRect(scrimColor, Offset(0f, 0f), GeometrySize(size.width, frame.top))
                 drawRect(
-                    color = scrimColor,
-                    topLeft = Offset(0f, 0f),
-                    size = GeometrySize(size.width, frame.top)
+                    scrimColor,
+                    Offset(0f, frame.bottom),
+                    GeometrySize(size.width, size.height - frame.bottom)
                 )
+                drawRect(scrimColor, Offset(0f, frame.top), GeometrySize(frame.left, frame.height))
                 drawRect(
-                    color = scrimColor,
-                    topLeft = Offset(0f, frame.bottom),
-                    size = GeometrySize(size.width, size.height - frame.bottom)
-                )
-                drawRect(
-                    color = scrimColor,
-                    topLeft = Offset(0f, frame.top),
-                    size = GeometrySize(frame.left, frame.height)
-                )
-                drawRect(
-                    color = scrimColor,
-                    topLeft = Offset(frame.right, frame.top),
-                    size = GeometrySize(size.width - frame.right, frame.height)
+                    scrimColor,
+                    Offset(frame.right, frame.top),
+                    GeometrySize(size.width - frame.right, frame.height)
                 )
                 drawRoundRect(
                     color = GuideFrameColor,
@@ -374,6 +398,32 @@ fun GlucoseCameraScanner(
                     cornerRadius = CornerRadius(12.dp.toPx()),
                     style = Stroke(width = 3.dp.toPx())
                 )
+            }
+        }
+
+        Surface(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(12.dp),
+            shape = MaterialTheme.shapes.small,
+            color = Color.Black.copy(alpha = 0.55f)
+        ) {
+            Button(
+                onClick = {
+                    val camera = cameraRef.get() ?: return@Button
+                    torchOn = !torchOn
+                    runCatching { camera.cameraControl.enableTorch(torchOn) }
+                },
+                colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
+                    contentColor = Color.White
+                )
+            ) {
+                Icon(
+                    if (torchOn) Icons.Default.FlashOn else Icons.Default.FlashOff,
+                    contentDescription = if (torchOn) "Tắt đèn" else "Bật đèn"
+                )
+                Spacer(modifier = Modifier.height(0.dp))
+                Text(if (torchOn) " Tắt đèn" else " Bật đèn")
             }
         }
 
@@ -405,10 +455,10 @@ fun GlucoseCameraScanner(
                         style = MaterialTheme.typography.bodySmall,
                         textAlign = TextAlign.Center
                     )
-                    if (noResultHint) {
-                        Spacer(modifier = Modifier.height(4.dp))
+                    hint?.let { message ->
+                        Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            "Chưa đọc được. Giữ máy đo yên trong khung, tránh lóa rồi thử lại.",
+                            message,
                             color = Color(0xFFFFD54F),
                             style = MaterialTheme.typography.bodySmall,
                             textAlign = TextAlign.Center
@@ -422,24 +472,22 @@ fun GlucoseCameraScanner(
     }
 }
 
-private const val ANALYSIS_INTERVAL_MS = 250L
-private const val SCAN_FEEDBACK_TIMEOUT_MS = 8_000L
-private const val STABILITY_WINDOW_SIZE = 4
-private const val STABILITY_REQUIRED_MATCHES = 3
-private const val STABILITY_TOLERANCE = 0.15f
+private const val ANALYSIS_INTERVAL_MS = 220L
+private const val REFOCUS_INTERVAL_MS = 2_500L
+private const val REFOCUS_HOLD_SECONDS = 3L
 
 private val GuideFrameColor = Color(0xFF4CE067)
 
-/**
- * Returns the most frequent value of the last frames when enough of them
- * agree with the latest one. This protects against a single noisy frame
- * delivering a wrong reading.
- */
-private fun findStableValue(values: ArrayDeque<Float>): Float? {
-    if (values.size < STABILITY_REQUIRED_MATCHES) return null
-    val latest = values.peekLast()
-    val matches = values.filter { abs(it - latest) <= STABILITY_TOLERANCE }
-    if (matches.size < STABILITY_REQUIRED_MATCHES) return null
-    return matches.groupingBy { it }.eachCount()
-        .entries.maxByOrNull { it.value }?.key ?: latest
+private fun rejectionHint(reason: ScanRejection): String = when (reason) {
+    ScanRejection.BLURRED -> "Ảnh bị mờ — giữ máy yên và chạm để lấy nét."
+    ScanRejection.GLARE -> "Bị loá — nghiêng máy đo hoặc tránh nguồn sáng."
+    ScanRejection.LOW_CONTRAST -> "Chưa thấy màn hình máy đo trong khung."
+    ScanRejection.DISAGREEMENT -> "Chưa đọc chắc chắn — giữ yên thêm một chút."
+    ScanRejection.NOT_FOUND -> "Chưa đọc được chỉ số — đưa dãy số vào giữa khung."
+}
+
+private fun statusHint(status: MeterStatus): String = when (status) {
+    MeterStatus.HIGH -> "Máy báo HI (đường huyết rất cao) — hãy nhập tay và liên hệ bác sĩ."
+    MeterStatus.LOW -> "Máy báo LO (đường huyết rất thấp) — xử trí hạ đường huyết ngay."
+    MeterStatus.ERROR -> "Máy đang báo lỗi — kiểm tra que thử rồi đo lại."
 }
