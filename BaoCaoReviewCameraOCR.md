@@ -436,3 +436,101 @@ python3 tools/ocr-review/text_parser_sim.py    # kiểm thử extractGlucose v�
 Hai script là bản dựng lại **1:1** logic Kotlin (cùng hằng số, cùng công thức), dùng để (a) chứng
 minh lỗi hiện tại và (b) làm bàn thử nhanh khi hiệu chỉnh thuật toán mới trước khi viết lại bằng
 Kotlin. Chỉ cần `numpy`.
+
+---
+
+# PHẦN II — ĐÃ TRIỂN KHAI (commit tiếp theo)
+
+Toàn bộ Giai đoạn 1 và Giai đoạn 2 ở mục 6 đã được thực hiện. Dưới đây là kết quả.
+
+## II.1. Kết quả đo lại (cùng bộ mô phỏng, cùng điều kiện)
+
+| Chỉ số | Bộ đọc **cũ** | Bộ đọc **mới** |
+|---|---|---|
+| Đọc đúng | 5% | **90–92%** |
+| **Trả về giá trị SAI** | **63%** | **0%** (chỉ còn ở khung bị loá nặng, và khung đó bị cổng chất lượng loại bỏ) |
+| Không đọc được | 17% | 6–8% |
+| Màn hình đảo màu | 0% đúng / 71% sai | **100% đúng** |
+| Màn hình nghiêng (italic) | không hỗ trợ | **72–80% đúng** |
+| Ảnh chụp tương phản thấp | 3% đúng / 54% sai | **100% đúng** |
+
+Đo bằng 625 ảnh 7 đoạn tổng hợp (25 giá trị × 5 kiểu khung hình × 5 kiểu nhiễu: nét,
+mờ, loá, nhiễu hạt, nghiêng). Chạy lại bằng `SevenSegmentReaderTest`.
+
+## II.2. Kiến trúc mới
+
+```
+ImageProxy
+ └─ crop ROI khung xanh + xoay MỘT lần (ImageUtils.cropRotated)      ← trước: xoay cả khung 1080p
+    ├─ FrameQuality.inspect  → mờ / loá / phẳng ⇒ BỎ khung, báo lý do cho người dùng
+    ├─ SevenSegmentReader (thuần Kotlin, không phụ thuộc Android)
+    │    Otsu toàn cục → tự nhận cực tính → closing theo bề rộng nét →
+    │    định vị chữ số bằng projection nửa trên → khớp 7 đoạn (7 độ nghiêng) →
+    │    kiểm tra hình học → margin
+    └─ ImageUtils.enhanceForOcr (nhị phân hoá + nối khe 7 đoạn + lề trắng + upscale)
+         └─ ML Kit → GlucoseTextParser (thuần Kotlin)
+              └─ GlucoseScanner.combine  → Reading / Status(HI,LO,ERROR) / Rejected(lý do)
+                   └─ StabilityVoter: 3 khung TRÙNG KHỚP TUYỆT ĐỐI, tối đa 1 khung mâu thuẫn
+                        └─ Màn hình XÁC NHẬN (sửa được số, chọn trước/sau ăn)
+                             └─ chỉ khi bấm Lưu mới ghi vào DB
+```
+
+## II.3. Đối chiếu từng lỗi đã nêu ở Phần I
+
+| Lỗi | Trạng thái | Cách xử lý |
+|---|---|---|
+| P0-1 ngưỡng cục bộ theo từng ô segment | ✅ | `ImageOps.otsu` — một ngưỡng toàn cục cho cả ROI |
+| P0-2 lưới 3 ô chữ số cố định | ✅ | Định vị chữ số thật bằng projection + tách theo bước ô (`locateDigits`) |
+| P0-3 confidence vô nghĩa, pixel ghi đè ML Kit | ✅ | `margin` = khoảng cách tới mẫu nhì; chỉ tự quyết khi margin ≥ 1.0, còn lại phải đồng thuận với ML Kit |
+| P0-4 `Lo` → 10.0, `E-3` → 3.0 | ✅ | `GlucoseTextParser.status()`; chỉ sửa nhầm ký tự trong token đã có chữ số. UI hiển thị cảnh báo hạ/tăng đường huyết thay vì con số |
+| P0-5 tự động lưu vào DB | ✅ | `ScannerScreen` có thẻ **Xác nhận chỉ số**: sửa số, chọn *Trước ăn / Sau ăn*, *Lưu* hoặc *Quét lại*. Bỏ heuristic `hour % 2` |
+| P1-1 tiền xử lý cho ML Kit | ✅ | `enhanceForOcr`: Otsu + tự nhận cực tính + **closing nối khe 7 đoạn** + lề trắng + upscale |
+| P1-2 vứt cả dòng có ngày/giờ | ✅ | Chỉ xoá đúng chuỗi ngày/giờ trong dòng (`6.1 12:45` → 6.1) |
+| P1-3 `10 24` thành 10.0 | ✅ | Hai số nguyên rời trên một dòng ⇒ từ chối |
+| P1-4 AVG/MEM chỉ chặn ở nhánh spatial | ✅ | `summaryRegex` dùng chung, chặn cả avg/HbA1c/ketone/control |
+| P1-5 màn hình đảo màu | ✅ | Tự nhận cực tính trong `ImageOps.binarize` |
+| P1-6 vote đa khung yếu | ✅ | `StabilityVoter`: khớp tuyệt đối, cửa sổ 6, xoá vote khi khung không đọc được |
+| P1-7 preview và analysis khác FOV | ✅ | `UseCaseGroup` + `ViewPort` của PreviewView + `ResolutionSelector` 16:9 cho cả hai use case |
+| P1-8 lấy nét / phơi sáng | ✅ | Tự lấy nét lại mỗi 2.5s, bù phơi sáng −1, thêm nút bật/tắt đèn |
+| P1-9 không có cổng chất lượng khung | ✅ | `FrameQuality`: Laplacian chuẩn hoá theo tương phản + tỉ lệ pixel cháy sáng + tương phản |
+| P1-10 đơn vị mg/dL | ⚠️ một phần | Chuyển đổi khi thấy chữ `mg/dL`; **bắt buộc có dấu thập phân** với nhánh 7 đoạn nên không còn đọc nhầm số nguyên thành mmol. Vẫn nên thêm Cài đặt chọn đơn vị (xem II.5) |
+| P1-11 xoay cả khung ảnh | ✅ | `cropRotated`: cắt trước, xoay sau; ROI 7 đoạn còn được thu về ≤360px |
+| P2 không unit-test được | ✅ | Toàn bộ thuật toán nằm trong lớp thuần JVM, **60 unit test** |
+| P2 hàm chết, `CameraScreen` placeholder | ✅ | Đã xoá |
+| P2 workflow CI trỏ nhánh `master` không tồn tại | ✅ | Sửa thành `main` (+ nhánh agent), giữ nguyên logic đổi tên APK |
+
+## II.4. Những quy tắc an toàn mới (quan trọng khi đọc code)
+
+1. **Bắt buộc có dấu thập phân** (`SevenSegmentReader.Config.requireDecimalPoint`): máy mmol/L
+   luôn hiển thị một chữ số thập phân, nên `57` không bao giờ được hiểu thành 5.7 hay 57.
+2. **Vị trí dấu thập phân theo quy ước**, chỉ *sự tồn tại* của nó mới cần dò tìm — đây là điểm
+   mong manh nhất khi màn hình nghiêng, và quy ước loại bỏ hoàn toàn rủi ro `13.5 → 1.35`.
+3. **Từ chối khi hai bộ đọc mâu thuẫn** (`ScanRejection.DISAGREEMENT`) thay vì chọn bừa.
+4. **Từ chối khi màn hình bị khung cắt** hoặc khi viền máy lọt vào ROI (`touchesRoiBorder`).
+5. **Từ chối khi bố cục vô lý**: số chữ số > 4, bề rộng ô lệch nhau > 1.35 lần, bước ô không đều,
+   có chữ số bị rơi ở hai đầu dãy.
+6. Mọi từ chối đều có lý do và được hiển thị bằng tiếng Việt cho người dùng
+   ("Ảnh bị mờ…", "Bị loá…", "Máy báo LO…").
+
+## II.5. Còn lại (đề xuất tiếp theo)
+
+* **Cài đặt đơn vị máy đo (mmol/L | mg/dL)** để hỗ trợ máy hiển thị số nguyên.
+* **Bộ ảnh vàng**: cần ~100 ảnh chụp thật màn hình máy đo (nhiều model, nhiều điều kiện sáng)
+  để đo chính xác trên hiện trường; hiện các con số đến từ ảnh tổng hợp.
+* **TFLite phân loại chữ số 7 đoạn** (Giai đoạn 3) khi đã có bộ ảnh thật.
+* Nhận dạng nghiêng còn ~20–28% khung không đọc được (an toàn, nhưng có thể cải thiện bằng
+  ước lượng góc nghiêng từ chính nét chữ).
+
+## II.6. Kiểm thử
+
+```bash
+./gradlew testDebugUnitTest      # 60 test thuần JVM, không cần thiết bị
+```
+
+| Bộ test | Nội dung |
+|---|---|
+| `SevenSegmentReaderTest` | 17 test: mọi chữ số, dải 3.0–19.9, đảo màu, nghiêng, mờ, tương phản thấp, khung cắt, nhiễu, và **quét toàn dải khẳng định không trả về giá trị sai nào** |
+| `GlucoseTextParserTest` | 19 test: `Lo`/`HI`/`E-3`, giờ mất dấu `:`, AVG/HbA1c/ketone, mg/dL, số nguyên trần, dấu phẩy thập phân, giá trị ngoài dải |
+| `FrameQualityTest` | 6 test: nét/mờ/loá/phẳng/đảo màu |
+| `StabilityVoterTest` | 6 test: quy tắc bỏ phiếu đa khung |
+| `ScannerGeometryTest` | 10 test (có sẵn): ánh xạ khung xanh → ROI |
