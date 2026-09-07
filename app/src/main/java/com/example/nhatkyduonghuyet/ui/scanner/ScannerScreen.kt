@@ -48,6 +48,7 @@ import androidx.core.content.ContextCompat
 import androidx.navigation.NavController
 import com.example.nhatkyduonghuyet.ml.GlucoseScanner
 import com.example.nhatkyduonghuyet.ml.ScannedGlucoseResult
+import com.example.nhatkyduonghuyet.ml.StableReadingTracker
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicBoolean
@@ -65,7 +66,7 @@ fun ScannerScreen(
     var lastResult by remember { mutableStateOf<ScannedGlucoseResult?>(null) }
     var showRedFlash by remember { mutableStateOf(false) }
     var torchOn by remember { mutableStateOf(false) }
-    val recentValues = remember { java.util.ArrayDeque<Float>() }
+    val stableTracker = remember { StableReadingTracker() }
     var cameraControlState by remember { mutableStateOf<androidx.camera.core.CameraControl?>(null) }
     var permissionGranted by remember {
         mutableStateOf(
@@ -164,13 +165,7 @@ fun ScannerScreen(
                     onCameraReady = { cameraControlState = it },
                     onError = { Log.e("Scanner", "Camera error", it) },
                     onResult = { result ->
-                        val stable = synchronized(recentValues) {
-                            recentValues.addLast(result.value)
-                            while (recentValues.size > STABILITY_WINDOW_SIZE) {
-                                recentValues.removeFirst()
-                            }
-                            findStableValue(recentValues)
-                        }
+                        val stable = stableTracker.offer(result.value)
                         if (stable != null && hasDetectedSuccess.compareAndSet(false, true)) {
                             val stableResult = result.copy(value = stable)
                             val isDanger = stableResult.value > 13.0f
@@ -269,15 +264,4 @@ fun ScannerScreen(
             }
         }
     }
-}
-
-private const val STABILITY_WINDOW_SIZE = 4
-private const val STABILITY_REQUIRED_MATCHES = 3
-private const val STABILITY_TOLERANCE = 0.15f
-
-private fun findStableValue(values: java.util.ArrayDeque<Float>): Float? {
-    if (values.size < STABILITY_REQUIRED_MATCHES) return null
-    val latest = values.peekLast()
-    val matches = values.count { kotlin.math.abs(it - latest) <= STABILITY_TOLERANCE }
-    return if (matches >= STABILITY_REQUIRED_MATCHES) latest else null
 }

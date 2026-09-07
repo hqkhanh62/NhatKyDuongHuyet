@@ -37,8 +37,8 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import com.example.nhatkyduonghuyet.ml.GlucoseScanner
 import com.example.nhatkyduonghuyet.ml.ScannedGlucoseResult
+import com.example.nhatkyduonghuyet.ml.StableReadingTracker
 import com.example.nhatkyduonghuyet.ui.scanner.GlucoseCameraPreview
-import java.util.ArrayDeque
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -58,7 +58,7 @@ fun CameraScannerDialog(
 ) {
     val context = LocalContext.current
     val hasDeliveredResult = remember { AtomicBoolean(false) }
-    val recentValues = remember { ArrayDeque<Float>() }
+    val stableTracker = remember { StableReadingTracker() }
 
     var permissionGranted by remember {
         mutableStateOf(
@@ -133,13 +133,7 @@ fun CameraScannerDialog(
                             },
                             onResult = { result ->
                                 if (hasDeliveredResult.get()) return@GlucoseCameraPreview
-                                val stableValue = synchronized(recentValues) {
-                                    recentValues.addLast(result.value)
-                                    while (recentValues.size > STABILITY_WINDOW_SIZE) {
-                                        recentValues.removeFirst()
-                                    }
-                                    findStableValue(recentValues)
-                                }
+                                val stableValue = stableTracker.offer(result.value)
                                 if (stableValue != null &&
                                     hasDeliveredResult.compareAndSet(false, true)
                                 ) {
@@ -174,13 +168,3 @@ fun CameraScannerDialog(
 }
 
 private const val SCAN_FEEDBACK_TIMEOUT_MS = 8_000L
-private const val STABILITY_WINDOW_SIZE = 4
-private const val STABILITY_REQUIRED_MATCHES = 3
-private const val STABILITY_TOLERANCE = 0.15f
-
-private fun findStableValue(values: ArrayDeque<Float>): Float? {
-    if (values.size < STABILITY_REQUIRED_MATCHES) return null
-    val latest = values.peekLast()
-    val matches = values.count { kotlin.math.abs(it - latest) <= STABILITY_TOLERANCE }
-    return if (matches >= STABILITY_REQUIRED_MATCHES) latest else null
-}

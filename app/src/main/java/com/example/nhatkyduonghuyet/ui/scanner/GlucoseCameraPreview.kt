@@ -40,6 +40,13 @@ import java.util.concurrent.atomic.AtomicReference
 const val SCAN_ANALYSIS_INTERVAL_MS = 250L
 
 /**
+ * Auto-focus/metering is re-armed this often. The initial request
+ * auto-cancels after a few seconds; a handheld meter at 15-20 cm then defocuses
+ * and every later frame analyses blurred digits - a major source of misreads.
+ */
+const val FOCUS_REFRESH_INTERVAL_MS = 2_500L
+
+/**
  * Camera preview + green guide frame + hybrid scanning loop, shared by the
  * full-screen scanner and the DayDetail dialog.
  *
@@ -68,6 +75,8 @@ fun GlucoseCameraPreview(
     val lastAttemptAt = remember { AtomicLong(0L) }
     val cameraProviderRef = remember { AtomicReference<ProcessCameraProvider?>(null) }
     val cameraControlRef = remember { AtomicReference<CameraControl?>(null) }
+    val focusActionRef = remember { AtomicReference<FocusMeteringAction?>(null) }
+    val lastFocusRequestAt = remember { AtomicLong(0L) }
     // The analyzer lambda is created once, so state it reads must live in refs.
     val enabledRef = remember { AtomicBoolean(enabled) }
     enabledRef.set(enabled)
@@ -136,6 +145,17 @@ fun GlucoseCameraPreview(
                                     return@setAnalyzer
                                 }
 
+                                // Keep the guide frame in focus for the whole
+                                // scan (CameraControl is thread-safe).
+                                val lastFocus = lastFocusRequestAt.get()
+                                if (now - lastFocus >= FOCUS_REFRESH_INTERVAL_MS &&
+                                    lastFocusRequestAt.compareAndSet(lastFocus, now)
+                                ) {
+                                    focusActionRef.get()?.let { action ->
+                                        cameraControlRef.get()?.startFocusAndMetering(action)
+                                    }
+                                }
+
                                 val bitmap = try {
                                     imageProxy.toBitmap()
                                 } catch (e: Exception) {
@@ -191,7 +211,9 @@ fun GlucoseCameraPreview(
                         onCameraReady(camera.cameraControl)
                         // Focus and expose on the guide frame itself, not the
                         // whole scene: a bright room next to a dim LCD used to
-                        // wash the digits out.
+                        // wash the digits out. The action is kept and re-armed
+                        // from the analyzer (see FOCUS_REFRESH_INTERVAL_MS) so
+                        // the meter stays sharp for the whole scan.
                         previewView.post {
                             val factory = previewView.meteringPointFactory
                             val point = factory.createPoint(
@@ -199,14 +221,15 @@ fun GlucoseCameraPreview(
                                 previewView.height / 2f,
                                 (frameWidthPx / maxOf(previewView.width, 1)).coerceIn(0.1f, 1f)
                             )
-                            camera.cameraControl.startFocusAndMetering(
-                                FocusMeteringAction.Builder(
-                                    point,
-                                    FocusMeteringAction.FLAG_AF or FocusMeteringAction.FLAG_AE
-                                )
-                                    .setAutoCancelDuration(2, TimeUnit.SECONDS)
-                                    .build()
+                            val action = FocusMeteringAction.Builder(
+                                point,
+                                FocusMeteringAction.FLAG_AF or FocusMeteringAction.FLAG_AE
                             )
+                                .setAutoCancelDuration(3, TimeUnit.SECONDS)
+                                .build()
+                            focusActionRef.set(action)
+                            lastFocusRequestAt.set(System.currentTimeMillis())
+                            camera.cameraControl.startFocusAndMetering(action)
                         }
                     } catch (error: Exception) {
                         onError(error)

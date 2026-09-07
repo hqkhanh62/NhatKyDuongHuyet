@@ -115,6 +115,19 @@ class GlucoseScanner @Inject constructor() {
         mlKitValue: Float?,
         rawText: String
     ): ScannedGlucoseResult? {
+        // A very confident pixel reading wins even when ML Kit disagrees:
+        // ML Kit's Latin model regularly confuses seven-segment digits
+        // (5.7 read as 5.1), and the old "null on disagreement" rule let that
+        // persistent misread block or replace the correct value.
+        if (pixel != null && pixel.confidence >= PIXEL_OVERRIDE_CONFIDENCE) {
+            return ScannedGlucoseResult(
+                value = pixel.value,
+                date = extractDate(rawText),
+                time = extractTime(rawText),
+                source = "PIXEL"
+            )
+        }
+
         // As per instructions: if pixel reader is confident and matches ML Kit (or ML Kit is null)
         if (pixel != null && pixel.confidence >= PIXEL_AUTHORITATIVE_CONFIDENCE) {
             if (mlKitValue == null || abs(pixel.value - mlKitValue) <= HYBRID_TOLERANCE) {
@@ -226,10 +239,21 @@ val numberRegex = Regex(
             }
 
             numberRegex.findAll(line).forEach { match ->
-                val numericToken = normalizeNumericToken(match.groupValues[1])
-                val rawValue = numericToken.toFloatOrNull() ?: return@forEach
+                val numericToken = match.groupValues[1]
+                // Letter-only tokens (confusable substitutions like "Lo", "II")
+                // are only trusted in a unit context: a meter's "Lo" indicator
+                // must never be read as 10.
+                val tokenHasRealDigit = numericToken.any { it in '0'..'9' }
+                if (!tokenHasRealDigit && !hasMmolUnit && !hasMgUnit) {
+                    return@forEach
+                }
+                val rawValue = normalizeNumericToken(numericToken).toFloatOrNull() ?: return@forEach
                 val convertedValue = when {
                     hasMgUnit -> rawValue / MG_DL_PER_MMOL
+                    // Decimal point lost to OCR ("5.7" read as "57"): mmol/L
+                    // meters always show one decimal digit, so an out-of-range
+                    // integer with an explicit mmol unit is a dropped separator.
+                    hasMmolUnit && rawValue > MAX_GLUCOSE && rawValue <= 350f -> rawValue / 10f
                     rawValue > 20f && !hasMmolUnit -> return@forEach
                     rawValue in MIN_GLUCOSE..MAX_GLUCOSE -> rawValue
                     else -> return@forEach
@@ -275,6 +299,12 @@ val numberRegex = Regex(
         normalized = Regex("(?<=\\d)\\s*[.]\\s*(?=\\d)")
             .replace(normalized, ".")
 
+        // A seven-segment decimal point sometimes OCRs as a colon. Only a
+        // single digit on each side is converted: real times (08:32) always
+        // have two-digit minutes and must survive untouched.
+        normalized = Regex("(?<![0-9])([0-9])\\s*:\\s*([0-9])(?![0-9])")
+            .replace(normalized, "$1.$2")
+
         // Some seven-segment displays produce "6 1 mmol/L".
         normalized = Regex(
             "(?<!\\d)(\\d{1,2})\\s+(\\d)(?=\\s*(?:mmol|mg(?:/\\s*dl)?|$))",
@@ -299,10 +329,12 @@ private fun normalizeNumericToken(token: String): String = token
     }
 
     private fun extractDate(text: String): String? {
+        // The two-part form requires at least one two-digit side, so a
+        // misread value like "5-7" is not turned into a date.
         val dateRegex = Regex(
             "\\b(\\d{4}[-/]\\d{1,2}[-/]\\d{1,2})\\b|" +
                 "\\b(\\d{1,2}[-/]\\d{1,2}[-/]\\d{4})\\b|" +
-                "\\b(\\d{1,2}[-/]\\d{1,2})\\b"
+                "\\b(\\d{2}[-/]\\d{1,2}|\\d{1,2}[-/]\\d{2})\\b"
         )
         val match = dateRegex.find(text)?.value ?: return null
 
@@ -340,6 +372,13 @@ private fun normalizeNumericToken(token: String): String = token
 
     /** Visible to JVM tests without exposing parsing internals to production callers. */
     internal fun extractGlucoseForTesting(text: String): Float? = extractGlucose(text)
+
+    /** Visible to JVM tests: hybrid combination decision for a frame. */
+    internal fun combineHybridForTesting(
+        pixel: PixelDisplayReading?,
+        mlKitValue: Float?,
+        rawText: String = ""
+    ): ScannedGlucoseResult? = combineHybrid(pixel, mlKitValue, rawText)
 
     private companion object {
         const val MG_DL_PER_MMOL = 18.0f
