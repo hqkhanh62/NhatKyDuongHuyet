@@ -58,11 +58,22 @@ jobs:
             exit 1
           fi
 
+      - name: Prepare web placeholder
+        run: |
+          mkdir -p www
+          cat > www/index.html <<'EOF'
+          <!doctype html>
+          <html>
+            <head><meta charset="utf-8"><title>NhatKyDuongHuyet</title></head>
+            <body>Loading...</body>
+          </html>
+          EOF
+
       - name: Generate Android project
         run: |
-          npx cap add android || true
+          rm -rf android
+          npx cap add android
           npx cap sync android
-
       - name: Setup JDK
         uses: actions/setup-java@v4
         with:
