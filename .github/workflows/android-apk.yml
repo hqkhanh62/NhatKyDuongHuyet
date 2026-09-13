@@ -5,7 +5,7 @@ on:
     inputs:
       web_app_url:
         description: "Public HTTPS URL of deployed web app"
-        required: true
+        required: false
         type: string
   push:
     branches:
@@ -19,7 +19,7 @@ jobs:
     permissions:
       contents: read
     env:
-      WEB_APP_URL: ${{ github.event.inputs.web_app_url || vars.WEB_APP_URL }}
+      WEB_APP_URL: ${{ github.event.inputs.web_app_url || vars.WEB_APP_URL || secrets.WEB_APP_URL }}
 
     steps:
       - name: Checkout
@@ -38,10 +38,19 @@ jobs:
             npm install
           fi
 
+      - name: Debug WEB_APP_URL presence
+        run: |
+          if [ -n "${WEB_APP_URL}" ]; then
+            echo "WEB_APP_URL is set"
+          else
+            echo "WEB_APP_URL is empty"
+            exit 1
+          fi
+
       - name: Validate WEB_APP_URL
         run: |
           if [ -z "${WEB_APP_URL}" ]; then
-            echo "WEB_APP_URL is missing. Set workflow input web_app_url or repo variable WEB_APP_URL"
+            echo "WEB_APP_URL is missing. Set workflow input web_app_url or repo variable/secret WEB_APP_URL"
             exit 1
           fi
           if [[ ! "${WEB_APP_URL}" =~ ^https:// ]]; then
