@@ -8,25 +8,22 @@ import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import com.example.nhatkyduonghuyet.ml.GlucoseScanner
+import com.example.nhatkyduonghuyet.ml.MeterDisplayFields
 import com.example.nhatkyduonghuyet.ml.SCAN_FRAME_ASPECT_RATIO
 import com.example.nhatkyduonghuyet.ml.ScannedGlucoseResult
 import com.example.nhatkyduonghuyet.ml.scanRoiForViewport
@@ -65,6 +62,8 @@ fun GlucoseCameraPreview(
     torchEnabled: Boolean = false,
     onCameraReady: (CameraControl) -> Unit = {},
     onError: (Exception) -> Unit = {},
+    onOcrFields: (MeterDisplayFields) -> Unit = {},
+    overlay: @Composable BoxScope.(ScanFrameSpec) -> Unit = { spec -> ScanGuideFrame(spec) },
     onResult: (ScannedGlucoseResult) -> Unit
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -77,6 +76,7 @@ fun GlucoseCameraPreview(
     val cameraControlRef = remember { AtomicReference<CameraControl?>(null) }
     val focusActionRef = remember { AtomicReference<FocusMeteringAction?>(null) }
     val lastFocusRequestAt = remember { AtomicLong(0L) }
+    val previewViewRef = remember { AtomicReference<PreviewView?>(null) }
     // The analyzer lambda is created once, so state it reads must live in refs.
     val enabledRef = remember { AtomicBoolean(enabled) }
     enabledRef.set(enabled)
@@ -102,12 +102,14 @@ fun GlucoseCameraPreview(
         val frameWidthPx = minOf(viewWidthPx * 0.86f, viewHeightPx * 0.86f * SCAN_FRAME_ASPECT_RATIO)
         val frameHeightPx = frameWidthPx / SCAN_FRAME_ASPECT_RATIO
         val frameWidthDp = with(density) { frameWidthPx.toDp() }
+        val frameHeightDp = with(density) { frameHeightPx.toDp() }
 
         AndroidView(
             factory = { ctx ->
                 val previewView = PreviewView(ctx).apply {
                     scaleType = PreviewView.ScaleType.FILL_CENTER
                 }
+                previewViewRef.set(previewView)
                 val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
                 cameraProviderFuture.addListener({
                     val provider = try {
@@ -194,6 +196,9 @@ fun GlucoseCameraPreview(
                                     onError = {
                                         isProcessing.set(false)
                                         imageProxy.close()
+                                    },
+                                    onOcrFields = { fields ->
+                                        if (!stopped.get()) onOcrFields(fields)
                                     }
                                 )
                             }
@@ -237,17 +242,58 @@ fun GlucoseCameraPreview(
                 }, ContextCompat.getMainExecutor(ctx))
                 previewView
             },
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(enabled) {
+                    detectTapGestures { tap ->
+                        requestFocusAt(
+                            tap = tap,
+                            previewView = previewViewRef.get(),
+                            cameraControl = cameraControlRef.get(),
+                            focusActionRef = focusActionRef,
+                            lastFocusRequestAt = lastFocusRequestAt
+                        )
+                    }
+                }
         )
 
-        Surface(
-            modifier = Modifier
-                .align(Alignment.Center)
-                .width(frameWidthDp)
-                .aspectRatio(SCAN_FRAME_ASPECT_RATIO),
-            color = Color.Transparent,
-            border = BorderStroke(2.dp, Color.Green.copy(alpha = 0.9f)),
-            shape = RoundedCornerShape(8.dp)
-        ) {}
+        overlay(
+            ScanFrameSpec(
+                viewWidth = maxWidth,
+                viewHeight = maxHeight,
+                frameWidth = frameWidthDp,
+                frameHeight = frameHeightDp
+            )
+        )
     }
 }
+
+/**
+ * Chạm vào màn hình để lấy nét đúng điểm người dùng chọn (tap-to-focus).
+ * Hành động focus được lưu lại vào [focusActionRef] nên vòng lặp cấp lại
+ * tiêu cự mỗi ~2.5 giây sẽ giữ nguyên điểm người dùng chạm thay vì nhảy về
+ * giữa khung.
+ */
+private fun requestFocusAt(
+    tap: Offset,
+    previewView: PreviewView?,
+    cameraControl: CameraControl?,
+    focusActionRef: AtomicReference<FocusMeteringAction?>,
+    lastFocusRequestAt: AtomicLong
+) {
+    if (previewView == null || cameraControl == null) return
+    val action = runCatching {
+        val point = previewView.meteringPointFactory.createPoint(tap.x, tap.y)
+        FocusMeteringAction.Builder(
+            point,
+            FocusMeteringAction.FLAG_AF or FocusMeteringAction.FLAG_AE
+        )
+            .setAutoCancelDuration(TAP_FOCUS_AUTO_CANCEL_SECONDS, TimeUnit.SECONDS)
+            .build()
+    }.getOrNull() ?: return
+    focusActionRef.set(action)
+    lastFocusRequestAt.set(System.currentTimeMillis())
+    runCatching { cameraControl.startFocusAndMetering(action) }
+}
+
+private const val TAP_FOCUS_AUTO_CANCEL_SECONDS = 6L

@@ -79,13 +79,11 @@ fun AppNavHost(
         }
 
         composable(GlucoseScreen.Scanner.route) {
-            val dashboardViewModel: com.example.nhatkyduonghuyet.ui.dashboard.DashboardViewModel = hiltViewModel()
+            // ScanViewModel tự lưu vào Room rồi chạy lại vòng dự báo AI,
+            // nên route này không cần đi qua DashboardViewModel nữa.
             ScannerScreen(
                 navController = navController,
-                scanner = scanner,
-                onGlucoseDetected = { result ->
-                    dashboardViewModel.onGlucoseScanned(result)
-                }
+                scanner = scanner
             )
         }
         

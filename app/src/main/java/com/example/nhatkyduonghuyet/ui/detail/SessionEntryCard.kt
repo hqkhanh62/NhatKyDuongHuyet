@@ -15,19 +15,23 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.example.nhatkyduonghuyet.data.local.entity.LogEntry
+import com.example.nhatkyduonghuyet.domain.scanner.AutoImportPipeline
 import com.example.nhatkyduonghuyet.ml.GlucoseScanner
+import com.example.nhatkyduonghuyet.ml.ScannedGlucoseResult
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -42,6 +46,7 @@ fun SessionEntryCard(
 ) {
     var logEntry by logEntryState
     var cameraField by remember { mutableStateOf<String?>(null) }
+    var statusHint by remember { mutableStateOf<String?>(null) }
 
     var bgBeforeText by remember(logEntry.id, logEntry.session) {
         mutableStateOf(logEntry.bgBefore?.toString() ?: "")
@@ -215,20 +220,78 @@ fun SessionEntryCard(
             scanner = scanner,
             onDismiss = { cameraField = null },
             onResult = { result ->
-                val updatedEntry = when (field) {
-                    "bgBefore" -> {
-                        bgBeforeText = result.value.toInputText()
-                        logEntry.copy(bgBefore = result.value.toDouble())
-                    }
-                    else -> {
-                        bgAfterText = result.value.toInputText()
-                        logEntry.copy(bgAfter = result.value.toDouble())
-                    }
+                // Auto Clean: chỉ nhận chỉ số trong ngưỡng an toàn 2.0 - 30.0.
+                val stored = when (val cleaned = AutoImportPipeline.clean(result.value)) {
+                    is AutoImportPipeline.CleanResult.Accepted -> AutoImportPipeline.toStoredMmol(cleaned.value)
+                    is AutoImportPipeline.CleanResult.Rejected -> null
                 }
-                logEntry = updatedEntry
-                onSave(updatedEntry)
+                if (stored == null) {
+                    statusHint = "Chỉ số quét không hợp lệ (ngoài ngưỡng 2.0-30.0 mmol/L)."
+                } else {
+                    var updatedEntry = when (field) {
+                        "bgBefore" -> {
+                            bgBeforeText = result.value.toInputText()
+                            logEntry.copy(bgBefore = stored)
+                        }
+                        else -> {
+                            bgAfterText = result.value.toInputText()
+                            logEntry.copy(bgAfter = stored)
+                        }
+                    }
+                    // Giờ lấy từ màn hình máy đo được ưu tiên; đã có giờ thì giữ.
+                    val scannedTime = AutoImportPipeline.normalizeTime(result.time)
+                    if (updatedEntry.time.isNullOrBlank() && scannedTime != null) {
+                        updatedEntry = updatedEntry.copy(time = scannedTime)
+                    }
+                    updatedEntry = updatedEntry.copy(
+                        note = appendScanNote(updatedEntry.note, result, field, scannedTime != null)
+                    )
+                    logEntry = updatedEntry
+                    statusHint = "Đã điền ${result.value.toInputText()} mmol/L bằng AI Camera OCR."
+                    onSave(updatedEntry)
+                }
+                cameraField = null
             }
         )
+    }
+
+    statusHint?.let { hint ->
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFFE3F2FD))
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = hint,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.weight(1f)
+                )
+                TextButton(onClick = { statusHint = null }) { Text("Ẩn") }
+            }
+        }
+    }
+}
+
+/** Ghi nguồn gốc chỉ số vào ghi chú để phân biệt dữ liệu quét máy và dữ liệu gõ tay. */
+private fun appendScanNote(
+    existing: String?,
+    result: ScannedGlucoseResult,
+    field: String,
+    hasMeterTime: Boolean
+): String {
+    val source = if (result.source == "PIXEL") "đọc điểm ảnh" else "ML Kit"
+    val timeNote = if (hasMeterTime) "giờ máy đo" else "giờ hệ thống"
+    val tag = "AI Camera OCR ($source, ${if (field == "bgBefore") "trước ăn" else "sau ăn"}, $timeNote)"
+    val clean = existing?.trim().orEmpty()
+    return when {
+        clean.isEmpty() -> tag
+        clean.contains(tag) -> clean
+        else -> "$clean • $tag"
     }
 }
 
