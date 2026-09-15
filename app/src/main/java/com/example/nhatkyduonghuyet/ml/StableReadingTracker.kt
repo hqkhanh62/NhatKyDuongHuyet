@@ -13,8 +13,8 @@ package com.example.nhatkyduonghuyet.ml
  * resolution) and accepts the modal value only when it dominates the window.
  */
 class StableReadingTracker(
-    private val windowSize: Int = DEFAULT_WINDOW_SIZE,
-    private val requiredMatches: Int = DEFAULT_REQUIRED_MATCHES
+    val windowSize: Int = DEFAULT_WINDOW_SIZE,
+    val requiredMatches: Int = DEFAULT_REQUIRED_MATCHES
 ) {
 
     private val window = ArrayDeque<Float>()
@@ -39,6 +39,16 @@ class StableReadingTracker(
             }
         }
         return if (bestCount >= requiredMatches) bestValue else null
+    }
+
+    /**
+     * Số lần lặp lại nhiều nhất của một giá trị trong cửa sổ - dùng cho chỉ
+     * báo tiến trình "đang khoá chỉ số" trên giao diện quét.
+     */
+    @Synchronized
+    fun matchCount(): Int {
+        if (window.isEmpty()) return 0
+        return window.groupingBy { it }.eachCount().values.maxOrNull() ?: 0
     }
 
     @Synchronized

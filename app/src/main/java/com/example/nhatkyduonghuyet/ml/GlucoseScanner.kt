@@ -10,19 +10,36 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.abs
 
-/** Result extracted from a glucose meter display. */
+/**
+ * Một khung hình đã được AI đọc.
+ *
+ * [date] và [time] là ngày/giờ *lấy trên chính màn hình máy đo* (đã chuẩn hoá
+ * yyyy-MM-dd / HH:mm) - null khi máy đo không hiển thị, khi đó luồng Auto
+ * Import sẽ dùng ngày/giờ hệ thống làm dự phòng.
+ */
 data class ScannedGlucoseResult(
     val value: Float,
     val date: String? = null,
     val time: String? = null,
-    val source: String = "ML_KIT"
+    val source: String = "ML_KIT",
+    val confidence: Float = 0f,
+    val fields: MeterDisplayFields = MeterDisplayFields()
 )
 
+/**
+ * Quét màn hình máy đo bằng ML Kit Text Recognition + bộ giải mã seven-segment.
+ *
+ * Kiến trúc 3 lớp:
+ * 1. [PixelGlucoseReader]/[SevenSegmentDecoder] đọc trực tiếp từng thanh của
+ *    màn hình LCD (chính xác nhất với chữ số bảy thanh).
+ * 2. ML Kit đọc toàn bộ văn bản trên màn hình, [MeterTextParser] tách 3 tầng:
+ *    chỉ số X.X mmol/L, giờ HH:mm và ngày DD/MM | MM/DD | YYYY-MM-DD.
+ * 3. [combineHybrid] hợp nhất hai nguồn theo độ tin cậy.
+ */
 @Singleton
 class GlucoseScanner @Inject constructor() {
 
-    // Initialize ML Kit only when a real camera frame is processed.
-    // This keeps the pure OCR parser usable from JVM unit tests.
+    // Khởi tạo ML Kit chỉ khi có frame thật, để parser thuần chạy được trong JVM test.
     private val pixelReader = PixelGlucoseReader()
     private val recognizer: TextRecognizer by lazy {
         TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
@@ -35,30 +52,11 @@ class GlucoseScanner @Inject constructor() {
     ) {
         recognizer.process(image)
             .addOnSuccessListener { visionText ->
-                val rawText = visionText.text
-                // Use spatial OCR lines first: the main seven-segment reading is
-                // much larger than DAY/AVG/date/time labels. Fall back to the
-                // text-only parser when ML Kit does not expose line geometry.
-                val value = if (visionText.textBlocks.isEmpty()) {
-                    extractGlucose(rawText)
-                } else {
-                    // Do not fall back to the flattened full text when layout
-                    // exists: that path mixes display digits with DAY/AVG/date
-                    // labels and can turn 5.7 into another plausible number.
-                    extractGlucose(visionText)
-                }
-                if (value != null) {
-                    onResult(
-                        ScannedGlucoseResult(
-                            value = value,
-                            date = extractDate(rawText),
-                            time = extractTime(rawText),
-                            source = "ML_KIT"
-                        )
-                    )
-                } else {
-                    onResult(null)
-                }
+                // Khi có layout thì chỉ tin vào cây layout: gộp toàn bộ văn bản
+                // thành một chuỗi sẽ trộn lẫn số lớn ở giữa màn hình với chữ số
+                // nhỏ của nhãn DAY/AVG/ngày/giờ (5.7 có thể thành số khác).
+                val fields = toFields(visionText, allowTextFallback = false)
+                onResult(resultOf(fields))
             }
             .addOnFailureListener { error ->
                 onError(error)
@@ -69,318 +67,135 @@ class GlucoseScanner @Inject constructor() {
      * @param roi region of the rotated frame the user framed in the green guide.
      *   Passing the real on-screen frame keeps the analysed pixels identical no
      *   matter how large the preview surface is (dialog vs. full screen).
+     * @param onOcrFields được gọi cho *mọi* frame phân tích, kể cả frame chưa đọc
+     *   ra chỉ số - giao diện dùng để hiển thị giờ/ngày/văn bản nhận dạng được.
      */
     fun processHybrid(
         fullBitmap: Bitmap,
         rotationDegrees: Int,
         roi: NormalizedRect = ImageUtils.DISPLAY_ROI,
         onResult: (ScannedGlucoseResult?) -> Unit,
-        onError: (Exception) -> Unit
+        onError: (Exception) -> Unit,
+        onOcrFields: (MeterDisplayFields) -> Unit = {}
     ) {
         val rotated = ImageUtils.rotateBitmap(fullBitmap, rotationDegrees)
         val safeRoi = roi.sanitized()
         val displayRoi = ImageUtils.enhanceForOcr(ImageUtils.cropNormalized(rotated, safeRoi))
 
-        // 1. Run Pixel Reader on the exact framed display.
+        // 1. Pixel reader đọc đúng vùng màn hình người dùng căn khung.
         val pixelResult = pixelReader.processDisplay(displayRoi)
 
-        // 2. Run ML Kit on a slightly padded, contrast-boosted and upscaled crop
-        // so units/labels stay readable while background clutter is excluded.
+        // 2. ML Kit đọc vùng đã nới nhẹ + tăng tương phản, đủ để thấy đơn vị
+        // và nhãn ngày/giờ mà vẫn loại bỏ được nền xung quanh.
         val ocrBitmap = ImageUtils.prepareOcrBitmap(rotated, safeRoi.expand(OCR_ROI_PADDING))
         val inputImage = InputImage.fromBitmap(ocrBitmap, 0)
         recognizer.process(inputImage)
             .addOnSuccessListener { visionText ->
-                val rawText = visionText.text
-                val mlKitValue = if (visionText.textBlocks.isEmpty()) {
-                    extractGlucose(rawText)
-                } else {
-                    extractGlucose(visionText) ?: extractGlucose(rawText)
-                }
-                
-                val finalResult = combineHybrid(pixelResult, mlKitValue, rawText)
-                onResult(finalResult)
+                val fields = toFields(visionText, allowTextFallback = true)
+                onOcrFields(fields)
+                onResult(combineHybrid(pixelResult, fields))
             }
             .addOnFailureListener { error ->
-                // If ML Kit fails, we might still have pixel result
+                // ML Kit hỏng thì vẫn còn kết quả đọc điểm ảnh.
                 if (pixelResult != null && pixelResult.confidence >= PIXEL_AUTHORITATIVE_CONFIDENCE) {
-                    onResult(ScannedGlucoseResult(pixelResult.value, source = "PIXEL"))
+                    onResult(
+                        ScannedGlucoseResult(
+                            value = pixelResult.value,
+                            source = "PIXEL",
+                            confidence = pixelResult.confidence
+                        )
+                    )
                 } else {
                     onError(error)
                 }
             }
     }
 
+    /** Chuyển cây văn bản ML Kit thành dữ liệu 3 tầng của [MeterTextParser]. */
+    private fun toFields(visionText: Text, allowTextFallback: Boolean): MeterDisplayFields {
+        val lines = visionText.textBlocks
+            .flatMap { block -> block.lines }
+            .map { line ->
+                // ML Kit có thể tách một chỉ số thành 3 element: ["5", ".", "7"].
+                // Nối lại có dấu cách để bộ chuẩn hoá khôi phục cả dấu phẩy thập
+                // phân lẫn chữ số.
+                val elementText = line.elements.joinToString(" ") { it.text }
+                OcrLine(
+                    text = elementText.ifBlank { line.text },
+                    heightPx = line.boundingBox?.height() ?: 0
+                )
+            }
+        // Không có block nào thì buộc phải dùng chuỗi văn bản gộp, kể cả khi
+        // người gọi không muốn fallback (đó là dữ liệu duy nhất ML Kit trả về).
+        return MeterTextParser.parse(visionText.text, lines, allowTextFallback || lines.isEmpty())
+    }
+
+    private fun resultOf(fields: MeterDisplayFields, source: String = "ML_KIT"): ScannedGlucoseResult? {
+        val reading = fields.glucose ?: return null
+        return ScannedGlucoseResult(
+            value = reading.value,
+            date = fields.date?.iso,
+            time = fields.time?.formatted,
+            source = source,
+            confidence = reading.confidence,
+            fields = fields
+        )
+    }
+
+    /**
+     * Hợp nhất pixel reader và ML Kit.
+     *
+     * Ảnh đọc từ điểm ảnh thắng thế khi đủ tin cậy, kể cả khi ML Kit phản đối:
+     * mô hình Latin của ML Kit đọc chữ số bảy thanh rất hay nhầm (5.7 thành 5.1),
+     * còn quy tắc cũ "bất đồng là trả null" khiến một lỗi đọc sai *lặp lại*
+     * chặn vĩnh viễn kết quả đúng.
+     */
     private fun combineHybrid(
         pixel: PixelDisplayReading?,
-        mlKitValue: Float?,
-        rawText: String
+        fields: MeterDisplayFields
     ): ScannedGlucoseResult? {
-        // A very confident pixel reading wins even when ML Kit disagrees:
-        // ML Kit's Latin model regularly confuses seven-segment digits
-        // (5.7 read as 5.1), and the old "null on disagreement" rule let that
-        // persistent misread block or replace the correct value.
+        val mlKit = fields.glucose
+
         if (pixel != null && pixel.confidence >= PIXEL_OVERRIDE_CONFIDENCE) {
-            return ScannedGlucoseResult(
-                value = pixel.value,
-                date = extractDate(rawText),
-                time = extractTime(rawText),
-                source = "PIXEL"
-            )
+            return pixelResult(pixel, fields)
         }
 
-        // As per instructions: if pixel reader is confident and matches ML Kit (or ML Kit is null)
         if (pixel != null && pixel.confidence >= PIXEL_AUTHORITATIVE_CONFIDENCE) {
-            if (mlKitValue == null || abs(pixel.value - mlKitValue) <= HYBRID_TOLERANCE) {
-                return ScannedGlucoseResult(
-                    value = pixel.value,
-                    date = extractDate(rawText),
-                    time = extractTime(rawText),
-                    source = "PIXEL"
-                )
+            if (mlKit == null || abs(pixel.value - mlKit.value) <= HYBRID_TOLERANCE) {
+                return pixelResult(pixel, fields)
             }
         }
 
-        // If they differ significantly, return null to prompt manual confirmation (or scanning again)
-        if (pixel != null && mlKitValue != null && abs(pixel.value - mlKitValue) > HYBRID_TOLERANCE) {
+        // Hai nguồn lệch nhau nhiều: thà để người dùng xác nhận tay còn hơn đoán.
+        if (pixel != null && mlKit != null && abs(pixel.value - mlKit.value) > HYBRID_TOLERANCE) {
             return null
         }
 
-        // Fallback to ML Kit if available
-        return mlKitValue?.let {
-            ScannedGlucoseResult(
-                value = it,
-                date = extractDate(rawText),
-                time = extractTime(rawText),
-                source = "ML_KIT"
-            )
-        }
+        return resultOf(fields)
     }
 
-    private data class GlucoseCandidate(
-        val value: Float,
-        val score: Int,
-        val position: Int
-    )
-
-    private data class SpatialGlucoseCandidate(
-        val value: Float,
-        val score: Int,
-        val position: Int
-    )
-
-    /**
-     * Selects the largest plausible numeric line from ML Kit's layout tree.
-     * This prevents small `DAY`, `AVG`, date and time digits from winning over
-     * the large central display value.
-     */
-    private fun extractGlucose(visionText: Text): Float? {
-        val candidates = visionText.textBlocks
-            .flatMap { it.lines }
-            .mapIndexedNotNull { index, line ->
-                // ML Kit may split a seven-segment reading into separate
-                // elements: ["5", ".", "7"]. Rebuild the line with spaces so
-                // the normalizer can recover both the decimal point and digit.
-                val elementText = line.elements.joinToString(" ") { it.text }
-                val lineText = elementText.ifBlank { line.text }
-                val value = extractGlucose(lineText) ?: return@mapIndexedNotNull null
-                val context = lineText.lowercase()
-                val boxHeight = line.boundingBox?.height() ?: 0
-                var score = boxHeight.coerceAtMost(1_000)
-                if (line.text.contains('.') || line.text.contains(',')) score += 180
-                if (context.contains("mmol") || context.contains("mg")) score += 300
-                if (context.contains("day") || context.contains("avg") ||
-                    context.contains("date") || context.contains("time") ||
-                    context.contains("mem")) score -= 500
-                SpatialGlucoseCandidate(value, score, index)
-            }
-
-        return candidates
-            .sortedWith(compareByDescending<SpatialGlucoseCandidate> { it.score }.thenBy { it.position })
-            .firstOrNull()
-            ?.value
-    }
-
-    /**
-     * Extracts a plausible glucose value from common meter output formats:
-     * Extracts a plausible glucose value from common meter output formats:
-     * 6.1, 6,1, 6 1, 110 mg/dL and 110 mg/dl.
-     *
-     * A number greater than 30 is not converted without an explicit mg/dL
-     * context. This avoids turning an OCR error such as "81" into 4.5 mmol/L.
-     */
-    private fun extractGlucose(text: String): Float? {
-        if (text.isBlank()) return null
-
-val numberRegex = Regex(
-            "(?<![0-9A-Za-z])([0-9OoQqIiLl|]{1,3}(?:\\.[0-9OoQqIiLl|]{1,2})?)(?![0-9A-Za-z])"
+    private fun pixelResult(pixel: PixelDisplayReading, fields: MeterDisplayFields): ScannedGlucoseResult =
+        ScannedGlucoseResult(
+            value = pixel.value,
+            date = fields.date?.iso,
+            time = fields.time?.formatted,
+            source = "PIXEL",
+            confidence = pixel.confidence,
+            fields = fields
         )
-        val dateOrTimeRegex = Regex(
-            "\\b[0-9]{1,4}[/\\-][0-9]{1,2}(?:[/\\-][0-9]{1,4})?\\b|" +
-                "\\b(?:[01]?\\d|2[0-3]):[0-5]\\d\\b"
-        )
-        val candidates = mutableListOf<GlucoseCandidate>()
-        var absolutePosition = 0
-
-        normalizeOcrText(text).lineSequence().forEach { line ->
-            val lineContext = line.lowercase()
-            val hasMmolUnit = lineContext.contains("mmol")
-            val hasMgUnit = lineContext.contains("mg")
-            val hasGlucoseLabel = lineContext.contains("glucose") ||
-                lineContext.contains("sugar") ||
-                lineContext.contains("result") ||
-                lineContext.contains("value")
-
-            // Date/time rows are noise unless the same row explicitly identifies
-            // a glucose value or unit.
-            val isDateOrTimeRow = dateOrTimeRegex.containsMatchIn(line)
-            if (isDateOrTimeRow && !hasGlucoseLabel && !hasMmolUnit && !hasMgUnit) {
-                absolutePosition += line.length + 1
-                return@forEach
-            }
-
-            numberRegex.findAll(line).forEach { match ->
-                val numericToken = match.groupValues[1]
-                // Letter-only tokens (confusable substitutions like "Lo", "II")
-                // are only trusted in a unit context: a meter's "Lo" indicator
-                // must never be read as 10.
-                val tokenHasRealDigit = numericToken.any { it in '0'..'9' }
-                if (!tokenHasRealDigit && !hasMmolUnit && !hasMgUnit) {
-                    return@forEach
-                }
-                val rawValue = normalizeNumericToken(numericToken).toFloatOrNull() ?: return@forEach
-                val convertedValue = when {
-                    hasMgUnit -> rawValue / MG_DL_PER_MMOL
-                    // Decimal point lost to OCR ("5.7" read as "57"): mmol/L
-                    // meters always show one decimal digit, so an out-of-range
-                    // integer with an explicit mmol unit is a dropped separator.
-                    hasMmolUnit && rawValue > MAX_GLUCOSE && rawValue <= 350f -> rawValue / 10f
-                    rawValue > 20f && !hasMmolUnit -> return@forEach
-                    rawValue in MIN_GLUCOSE..MAX_GLUCOSE -> rawValue
-                    else -> return@forEach
-                }
-
-                if (convertedValue !in MIN_GLUCOSE..MAX_GLUCOSE) return@forEach
-
-                var score = 0
-                if (hasMmolUnit) score += 100
-                if (hasMgUnit) score += 90
-                if (rawValue % 1f != 0f) score += 25
-                if (convertedValue in 3f..20f) score += 10
-                if (hasGlucoseLabel) score += 20
-
-                candidates += GlucoseCandidate(
-                    value = convertedValue,
-                    score = score,
-                    position = absolutePosition + match.range.first
-                )
-            }
-            absolutePosition += line.length + 1
-        }
-
-        return candidates
-            .sortedWith(compareByDescending<GlucoseCandidate> { it.score }.thenBy { it.position })
-            .firstOrNull()
-            ?.value
-    }
-
-    /**
-     * Makes common OCR errors deterministic before numeric parsing.
-     * Delimiter normalization is intentionally conservative: a blank is
-     * treated as a decimal separator only when followed by a unit or EOL.
-     */
-    private fun normalizeOcrText(text: String): String {
-        var normalized = text
-            .replace('\u00A0', ' ')
-            .replace('٫', '.')
-            .replace('，', '.')
-            .replace(',', '.')
-
-        // 6 , 1 / 6 . 1 -> 6.1, including spaces around the delimiter.
-        normalized = Regex("(?<=\\d)\\s*[.]\\s*(?=\\d)")
-            .replace(normalized, ".")
-
-        // A seven-segment decimal point sometimes OCRs as a colon. Only a
-        // single digit on each side is converted: real times (08:32) always
-        // have two-digit minutes and must survive untouched.
-        normalized = Regex("(?<![0-9])([0-9])\\s*:\\s*([0-9])(?![0-9])")
-            .replace(normalized, "$1.$2")
-
-        // Some seven-segment displays produce "6 1 mmol/L".
-        normalized = Regex(
-            "(?<!\\d)(\\d{1,2})\\s+(\\d)(?=\\s*(?:mmol|mg(?:/\\s*dl)?|$))",
-            RegexOption.IGNORE_CASE
-        ).replace(normalized, "$1.$2")
-
-        return normalized
-            .replace(Regex("[ \\t]+"), " ")
-            .trim()
-    }
-
-private fun normalizeNumericToken(token: String): String = token
-        .replace('O', '0', ignoreCase = true)
-        .replace('Q', '0', ignoreCase = true)
-        .replace('I', '1', ignoreCase = true)
-        .replace('L', '1', ignoreCase = true)
-        .replace('|', '1')
-
-    private fun extractTime(text: String): String? {
-        val timeRegex = Regex("\\b([01]?\\d|2[0-3]):([0-5]\\d)\\b")
-        return timeRegex.find(text)?.value
-    }
-
-    private fun extractDate(text: String): String? {
-        // The two-part form requires at least one two-digit side, so a
-        // misread value like "5-7" is not turned into a date.
-        val dateRegex = Regex(
-            "\\b(\\d{4}[-/]\\d{1,2}[-/]\\d{1,2})\\b|" +
-                "\\b(\\d{1,2}[-/]\\d{1,2}[-/]\\d{4})\\b|" +
-                "\\b(\\d{2}[-/]\\d{1,2}|\\d{1,2}[-/]\\d{2})\\b"
-        )
-        val match = dateRegex.find(text)?.value ?: return null
-
-        return try {
-            val parts = match.split('/', '-')
-            val currentYear = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)
-
-            when (parts.size) {
-                3 -> {
-                    val p1 = parts[0].toInt()
-                    val p2 = parts[1].toInt()
-                    val p3 = parts[2].toInt()
-
-                    if (parts[0].length == 4) {
-                        if (p2 > 12 && p3 <= 12) {
-                            "%04d-%02d-%02d".format(p1, p3, p2)
-                        } else {
-                            "%04d-%02d-%02d".format(p1, p2, p3)
-                        }
-                    } else if (p1 > 12 && p2 <= 12) {
-                        "%04d-%02d-%02d".format(p3, p2, p1)
-                    } else {
-                        "%04d-%02d-%02d".format(p3, p1, p2)
-                    }
-                }
-                2 -> {
-                    "%04d-%02d-%02d".format(currentYear, parts[1].toInt(), parts[0].toInt())
-                }
-                else -> null
-            }
-        } catch (_: Exception) {
-            null
-        }
-    }
 
     /** Visible to JVM tests without exposing parsing internals to production callers. */
-    internal fun extractGlucoseForTesting(text: String): Float? = extractGlucose(text)
+    internal fun extractGlucoseForTesting(text: String): Float? = MeterTextParser.extractGlucose(text)
 
     /** Visible to JVM tests: hybrid combination decision for a frame. */
     internal fun combineHybridForTesting(
         pixel: PixelDisplayReading?,
         mlKitValue: Float?,
         rawText: String = ""
-    ): ScannedGlucoseResult? = combineHybrid(pixel, mlKitValue, rawText)
+    ): ScannedGlucoseResult? = combineHybrid(pixel, fieldsWithOverride(MeterTextParser.parse(rawText), mlKitValue))
 
-    private companion object {
-        const val MG_DL_PER_MMOL = 18.0f
+    private fun fieldsWithOverride(fields: MeterDisplayFields, mlKitValue: Float?): MeterDisplayFields {
+        val reading = mlKitValue?.let { GlucoseReading(it, 0.5f, fromSpatialLine = false, hasUnit = false, hasDecimal = true) }
+        return fields.copy(glucose = reading)
     }
 }

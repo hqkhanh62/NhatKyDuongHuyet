@@ -1,0 +1,524 @@
+package com.example.nhatkyduonghuyet.ml
+
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
+import kotlin.math.roundToInt
+
+/**
+ * OCR đa tầng cho màn hình máy đo đường huyết (tầng "Pro AI").
+ *
+ * Tầng 1 – chỉ số: số có dạng X.X mmol/L, kèm chuẩn hoá lỗi đọc seven-segment.
+ * Tầng 2 – giờ:    HH:mm, HH:mm:ss và dạng 12 giờ có AM/PM.
+ * Tầng 3 – ngày:   DD/MM, MM/DD, DD/MM/YYYY và YYYY-MM-DD (đã kiểm tra hợp lệ).
+ * Ngoài ra: mã lỗi máy đo (E-05, HI, LO…) để không bao giờ lưu dữ liệu nhiễu.
+ *
+ * File này cố tình không import Android/ML Kit: toàn bộ logic parse chạy được
+ * trên JVM unit test. [tools/prototype_meter_text_parser.py] là bản
+ * transliterate Python của cùng logic, dùng để đối chiếu regex.
+ */
+object MeterTextParser {
+
+    // ------------------------------------------------------------------ tầng 0
+    private val COLON_DECIMAL = Regex("(?<![0-9])([0-9])\\s*:\\s*([0-9])(?![0-9])")
+    private val SPACED_DOT = Regex("(?<=\\d)\\s*[.]\\s*(?=\\d)")
+    private val SPACE_DECIMAL = Regex(
+        "(?<!\\d)(\\d{1,2})\\s+(\\d)(?=\\s*(?:mmol|mg(?:/\\s*dl)?|$))",
+        RegexOption.IGNORE_CASE
+    )
+    private val MULTI_SPACE = Regex("[ \\t]+")
+    private val BLANK_RUN = Regex("[\\s-]")
+
+    // ------------------------------------------------------------------ tầng 1
+    private val NUMBER =
+        Regex("(?<![0-9A-Za-z])([0-9OoQqIiLl|]{1,3}(?:\\.[0-9OoQqIiLl|]{1,2})?)(?![0-9A-Za-z])")
+    private val DATE_OR_TIME_ROW = Regex(
+        "\\b[0-9]{1,4}[/\\-][0-9]{1,2}(?:[/\\-][0-9]{1,4})?\\b|" +
+            "\\b(?:[01]?\\d|2[0-3]):[0-5]\\d\\b"
+    )
+    private val UNIT_HINTS = listOf("mmol", "mg")
+    private val LABEL_HINTS = listOf("glucose", "sugar", "result", "value")
+    private val NOISE_HINTS = listOf("day", "avg", "date", "time", "mem", "max", "min")
+
+    // ------------------------------------------------------------------ tầng 2
+    private val TIME_LABEL = Regex("(time|giờ|gio|clock)", RegexOption.IGNORE_CASE)
+    private val COLON_TIME =
+        Regex("(?<![\\d:.])((?:[01]?\\d|2[0-3])):([0-5]\\d)(?::([0-5]\\d))?(?![\\d:])")
+    private val LABELLED_TIME =
+        Regex("(?<![\\d:.])((?:[01]?\\d|2[0-3]))[.:]([0-5]\\d)(?::([0-5]\\d))?(?![\\d:])")
+    private val MERIDIEM_TIME = Regex(
+        "(?<!\\d)(1[0-2]|[1-9])[:.]([0-5]\\d)\\s*([AP])\\.?\\s*M?(?![0-9A-Za-z])",
+        RegexOption.IGNORE_CASE
+    )
+
+    // ------------------------------------------------------------------ tầng 3
+    private val DATE_LABEL = Regex("(date|ngày|ngay|dd/mm|yyyy)", RegexOption.IGNORE_CASE)
+    private val ISO_DATE = Regex("(?<!\\d)(\\d{4})([-/.])(\\d{1,2})\\2(\\d{1,2})(?!\\d)")
+    private val FULL_DATE = Regex("(?<!\\d)(\\d{1,2})([-/.])(\\d{1,2})\\2(\\d{2,4})(?!\\d)")
+    private val SHORT_DATE = Regex("(?<!\\d)(\\d{1,2})([-/])(\\d{1,2})(?!\\d)")
+    private val SHORT_DOT_DATE = Regex("(?<!\\d)(\\d{2})[.](\\d{2})(?!\\d)")
+    private val ERROR_CODE = Regex(
+        "(?<![0-9A-Za-z])(E[\\s-]?\\d{1,3}|ERR(?:OR)?|HI|LO)(?![0-9A-Za-z])",
+        RegexOption.IGNORE_CASE
+    )
+
+    /** Ngày máy đo vượt quá hôm nay số ngày này bị coi là đồng hồ máy sai (Auto Clean). */
+    private const val MAX_FUTURE_DAYS = 1
+    private const val MAX_PAST_YEARS = 5
+    private const val MIN_SUPPORTED_YEAR = 2000
+    private const val MAX_SUPPORTED_YEAR = 2100
+
+    /** Dòng thắng cuộc phải cao hơn median cỡ này lần mới được coi là số lớn giữa màn hình. */
+    private const val DOMINANT_LINE_RATIO = 1.6f
+
+    private const val MG_DL_PER_MMOL = 18.0f
+
+    private data class Candidate(
+        val value: Float,
+        val score: Int,
+        val position: Int,
+        val hasUnit: Boolean,
+        val hasDecimal: Boolean
+    )
+
+    private data class LinePick(val reading: GlucoseReading, val score: Int, val index: Int)
+
+    private data class TimeCandidate(
+        val hour: Int,
+        val minute: Int,
+        val confidence: Float,
+        val penalty: Int,
+        val lineIndex: Int
+    ) {
+        val rank: Triple<Float, Int, Int> get() = Triple(confidence, -penalty, -lineIndex)
+    }
+
+    private data class DateCandidate(
+        val year: Int,
+        val month: Int,
+        val day: Int,
+        val confidence: Float,
+        val ambiguous: Boolean,
+        val lineIndex: Int
+    ) {
+        val rank: Triple<Float, Int, Int> get() = Triple(confidence, -lineIndex, 0)
+    }
+
+    private data class DayMonth(val day: Int, val month: Int, val ambiguous: Boolean, val swapped: Boolean)
+
+    private data class ShortPair(val first: Int, val second: Int, val confidence: Float)
+
+    /**
+     * Chuẩn hoá ký tự dễ nhầm trước khi parse. Dấu hai chấm giữa đúng một chữ số
+     * mỗi bên thành dấu thập phân ("5:7" -> "5.7"), còn giờ thật (08:32, 8:30)
+     * giữ nguyên vì phút luôn có hai chữ số.
+     */
+    fun normalizeDisplayText(text: String): String {
+        var normalized = text
+            .replace('\u00A0', ' ')
+            .replace('٫', '.')
+            .replace('，', '.')
+            .replace(',', '.')
+        normalized = COLON_DECIMAL.replace(normalized, "$1.$2")
+        return MULTI_SPACE.replace(normalized, " ").trim()
+    }
+
+    /** Tầng 1 trên một dòng: mọi giá trị hợp lệ kèm điểm ưu tiên. */
+    private fun lineCandidates(line: String, offset: Int = 0): List<Candidate> {
+        val context = line.lowercase(Locale.US)
+        val hasMmolUnit = context.contains("mmol")
+        val hasMgUnit = context.contains("mg")
+        val hasGlucoseLabel = LABEL_HINTS.any { context.contains(it) }
+
+        // Dòng ngày/giờ là nhiễu, trừ khi chính nó ghi đơn vị hoặc nhãn chỉ số.
+        if (DATE_OR_TIME_ROW.containsMatchIn(line) && !hasMmolUnit && !hasMgUnit && !hasGlucoseLabel) {
+            return emptyList()
+        }
+        val spaced = SPACE_DECIMAL.replace(line, "$1.$2")
+        val normalized = SPACED_DOT.replace(spaced, ".")
+
+        val output = mutableListOf<Candidate>()
+        for (match in NUMBER.findAll(normalized)) {
+            val token = match.groupValues[1]
+            // Token chỉ toàn chữ ("Lo") không bao giờ được thành 10.
+            val hasRealDigit = token.any { it in '0'..'9' }
+            if (!hasRealDigit && !hasMmolUnit && !hasMgUnit) continue
+            val rawValue = normalizeNumericToken(token).toFloatOrNull() ?: continue
+
+            val convertedValue: Float? = when {
+                hasMgUnit -> rawValue / MG_DL_PER_MMOL
+                // Mất dấu thập phân: máy mmol/L luôn có 1 chữ số sau dấu phẩy.
+                hasMmolUnit && rawValue > MAX_GLUCOSE && rawValue <= 350f -> rawValue / 10f
+                rawValue > 20f && !hasMmolUnit -> null
+                rawValue in MIN_GLUCOSE..MAX_GLUCOSE -> rawValue
+                else -> null
+            }
+            val glucoseValue = convertedValue ?: continue
+            if (glucoseValue !in MIN_GLUCOSE..MAX_GLUCOSE) continue
+
+            var score = 0
+            if (hasMmolUnit) score += 100
+            if (hasMgUnit) score += 90
+            if (rawValue % 1f != 0f) score += 25
+            if (glucoseValue in 3f..20f) score += 10
+            if (hasGlucoseLabel) score += 20
+            output += Candidate(
+                value = glucoseValue,
+                score = score,
+                position = offset + match.range.first,
+                hasUnit = hasMmolUnit || hasMgUnit,
+                hasDecimal = rawValue % 1f != 0f
+            )
+        }
+        return output
+    }
+
+    /** Tầng 1 trên văn bản thô (khi ML Kit không trả về layout). */
+    fun extractGlucose(text: String): Float? = extractReading(text)?.value
+
+    /** Tầng 1 trên văn bản thô, kèm độ tin cậy. */
+    fun extractReading(text: String): GlucoseReading? {
+        if (text.isBlank()) return null
+        val lines = normalizeDisplayText(text).lines()
+        val candidates = mutableListOf<Candidate>()
+        var absolutePosition = 0
+        for (line in lines) {
+            candidates += lineCandidates(line, absolutePosition)
+            absolutePosition += line.length + 1
+        }
+        val best = candidates
+            .sortedWith(compareByDescending<Candidate> { it.score }.thenBy { it.position })
+            .firstOrNull()
+            ?: return null
+
+        var confidence = 0.45f
+        if (best.hasUnit) confidence += 0.20f
+        if (best.hasDecimal) confidence += 0.15f
+        return GlucoseReading(
+            value = best.value,
+            confidence = confidence.coerceIn(0f, 1f),
+            fromSpatialLine = false,
+            hasUnit = best.hasUnit,
+            hasDecimal = best.hasDecimal
+        )
+    }
+
+    /**
+     * Tầng 1 dùng thông tin layout của ML Kit: chọn dòng có chữ to nhất trong
+     * những dòng hợp lý. Đây là cách phân biệt số lớn ở giữa màn hình với các
+     * chữ số nhỏ của nhãn DAY/AVG/ngày/giờ.
+     */
+    fun extractReadingFromLines(lines: List<OcrLine>): GlucoseReading? {
+        if (lines.isEmpty()) return null
+        val medianHeight = medianLineHeight(lines)
+        val picks = mutableListOf<LinePick>()
+
+        for (index in lines.indices) {
+            val line = lines[index]
+            val normalized = normalizeDisplayText(line.text)
+            val candidates = lineCandidates(normalized)
+            if (candidates.isEmpty()) continue
+            val best = candidates.maxByOrNull { it.score } ?: continue
+            val lower = normalized.lowercase(Locale.US)
+            val hasUnit = UNIT_HINTS.any { lower.contains(it) }
+            val hasDecimal = normalized.contains('.') || normalized.contains(',')
+            val dominantThreshold = (medianHeight * DOMINANT_LINE_RATIO).roundToInt()
+            val isDominant = medianHeight > 0 && line.heightPx >= dominantThreshold
+
+            var score = best.score + line.heightPx.coerceAtMost(1_000)
+            if (hasDecimal) score += 180
+            if (hasUnit) score += 300
+            if (NOISE_HINTS.any { lower.contains(it) }) score -= 500
+
+            var confidence = 0.35f
+            if (hasUnit) confidence += 0.25f
+            if (hasDecimal) confidence += 0.20f
+            if (isDominant) confidence += 0.15f
+
+            picks += LinePick(
+                reading = GlucoseReading(
+                    value = best.value,
+                    confidence = confidence.coerceIn(0f, 1f),
+                    fromSpatialLine = true,
+                    hasUnit = hasUnit,
+                    hasDecimal = hasDecimal
+                ),
+                score = score,
+                index = index
+            )
+        }
+
+        return picks
+            .sortedWith(compareByDescending<LinePick> { it.score }.thenBy { it.index })
+            .firstOrNull()
+            ?.reading
+    }
+
+    private fun medianLineHeight(lines: List<OcrLine>): Int {
+        val heights = lines.map { it.heightPx }.filter { it > 0 }.sorted()
+        if (heights.isEmpty()) return 0
+        return heights[heights.size / 2]
+    }
+
+    /**
+     * Tầng 2: giờ trên màn hình máy đo. Hỗ trợ 08:32, 8:32, 09:15:30,
+     * 7:30 AM và 7.45 PM. Dạng dùng dấu chấm ("8.30") chỉ được chấp nhận khi
+     * dòng có nhãn Time/giờ hoặc kèm AM/PM, để "5.7" không bao giờ thành giờ.
+     */
+    fun extractTime(text: String): MeterTime? {
+        if (text.isBlank()) return null
+        var best: TimeCandidate? = null
+        val lines = normalizeDisplayText(text).lines()
+
+        for (index in lines.indices) {
+            val line = normalizeDisplayText(lines[index])
+            if (line.isBlank()) continue
+            val labelled = TIME_LABEL.containsMatchIn(line)
+
+            if (!labelled) {
+                val meridiem = MERIDIEM_TIME.find(line)
+                if (meridiem != null) {
+                    val hourValue = meridiem.groupValues[1].toIntOrNull()
+                    val minuteValue = meridiem.groupValues[2].toIntOrNull()
+                    if (hourValue != null && minuteValue != null && hourValue in 1..12 && minuteValue <= 59) {
+                        val isPm = meridiem.groupValues[3].equals("p", ignoreCase = true)
+                        val candidate = TimeCandidate(
+                            hour = (hourValue % 12) + if (isPm) 12 else 0,
+                            minute = minuteValue,
+                            confidence = 0.85f,
+                            penalty = 0,
+                            lineIndex = index
+                        )
+                        val current = best
+                        if (current == null || candidate.rank > current.rank) best = candidate
+                    }
+                }
+            }
+
+            val pattern = if (labelled) LABELLED_TIME else COLON_TIME
+            for (match in pattern.findAll(line)) {
+                val hour = match.groupValues[1].toIntOrNull() ?: continue
+                val minute = match.groupValues[2].toIntOrNull() ?: continue
+                if (hour > 23 || minute > 59) continue
+                val candidate = TimeCandidate(
+                    hour = hour,
+                    minute = minute,
+                    confidence = if (labelled) 1.0f else 0.8f,
+                    penalty = if (match.groupValues[3].isNotEmpty()) 30 else 0,
+                    lineIndex = index
+                )
+                val current = best
+                if (current == null || candidate.rank > current.rank) best = candidate
+            }
+        }
+
+        return best?.let { MeterTime(it.hour, it.minute, it.confidence) }
+    }
+
+    /**
+     * Tầng 3: ngày trên màn hình máy đo, chuẩn hoá về yyyy-MM-dd.
+     *
+     * Thứ tự ưu tiên: YYYY-MM-DD -> D/M/YYYY (hoặc D.M.YYYY) -> DD/MM không năm.
+     * Nếu hai vế đều <= 12 thì hiểu theo kiểu Việt Nam (ngày trước) và đánh dấu
+     * [MeterDate.ambiguous] để người dùng kiểm lại. Ngày lệch hơn 1 ngày so với
+     * máy hoặc quá cũ 5 năm bị loại.
+     */
+    fun extractDate(
+        text: String,
+        fallbackYear: Int = Calendar.getInstance().get(Calendar.YEAR),
+        todayIso: String? = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+    ): MeterDate? {
+        if (text.isBlank()) return null
+        var best: DateCandidate? = null
+        val lines = normalizeDisplayText(text).lines()
+
+        for (index in lines.indices) {
+            // Giờ bị xoá trước khi tìm ngày, nếu không "08.30" dễ thành 30/08.
+            val line = COLON_TIME.replace(normalizeDisplayText(lines[index]), " ")
+            if (line.isBlank()) continue
+            val labelled = DATE_LABEL.containsMatchIn(line)
+            val found = mutableListOf<DateCandidate>()
+
+            for (match in ISO_DATE.findAll(line)) {
+                val year = match.groupValues[1].toIntOrNull() ?: continue
+                val second = match.groupValues[3].toIntOrNull() ?: continue
+                val third = match.groupValues[4].toIntOrNull() ?: continue
+                when {
+                    isRealDate(year, second, third) ->
+                        found += DateCandidate(
+                            year, second, third, if (labelled) 0.95f else 0.9f, false, index
+                        )
+                    // "2026-13-05": tháng và ngày bị OCR đổi chỗ.
+                    isRealDate(year, third, second) ->
+                        found += DateCandidate(year, third, second, 0.7f, true, index)
+                }
+            }
+
+            for (match in FULL_DATE.findAll(line)) {
+                val year = expandYear(match.groupValues[4]) ?: continue
+                val first = match.groupValues[1].toIntOrNull() ?: continue
+                val second = match.groupValues[3].toIntOrNull() ?: continue
+                for (option in orientationCandidates(first, second)) {
+                    if (isRealDate(year, option.month, option.day)) {
+                        found += DateCandidate(
+                            year = year,
+                            month = option.month,
+                            day = option.day,
+                            confidence = if (option.swapped) 0.7f else if (labelled) 0.9f else 0.85f,
+                            ambiguous = option.ambiguous,
+                            lineIndex = index
+                        )
+                        break
+                    }
+                }
+            }
+
+            if (found.isEmpty()) {
+                for (short in shortDateCandidates(line, labelled)) {
+                    for (option in orientationCandidates(short.first, short.second)) {
+                        if (isRealDate(fallbackYear, option.month, option.day)) {
+                            found += DateCandidate(
+                                year = fallbackYear,
+                                month = option.month,
+                                day = option.day,
+                                confidence = if (option.swapped) 0.7f else short.confidence,
+                                ambiguous = option.ambiguous,
+                                lineIndex = index
+                            )
+                            break
+                        }
+                    }
+                }
+            }
+
+            for (candidate in found) {
+                if (isOutsidePlausibleWindow(candidate.year, candidate.month, candidate.day, todayIso)) {
+                    continue
+                }
+                val current = best
+                if (current == null || candidate.rank > current.rank) best = candidate
+            }
+        }
+
+        return best?.let { MeterDate(it.year, it.month, it.day, it.confidence, it.ambiguous) }
+    }
+
+    /** Các cách hiểu (ngày, tháng): vế > 12 bắt buộc là ngày, nếu không thì ưu tiên ngày trước. */
+    private fun orientationCandidates(first: Int, second: Int): List<DayMonth> = when {
+        first > 12 && second <= 12 -> listOf(DayMonth(first, second, false, false))
+        second > 12 && first <= 12 -> listOf(DayMonth(second, first, false, false))
+        else -> listOf(DayMonth(first, second, true, false), DayMonth(second, first, true, true))
+    }
+
+    /** Cặp ngày/tháng không có năm; bắt buộc một vế đủ 2 chữ số ("6-1" không thành ngày). */
+    private fun shortDateCandidates(line: String, labelled: Boolean): List<ShortPair> {
+        val output = mutableListOf<ShortPair>()
+        for (match in SHORT_DATE.findAll(line)) {
+            val first = match.groupValues[1]
+            val second = match.groupValues[3]
+            if (first.length < 2 && second.length < 2) continue
+            val firstValue = first.toIntOrNull() ?: continue
+            val secondValue = second.toIntOrNull() ?: continue
+            output += ShortPair(firstValue, secondValue, if (labelled) 0.9f else 0.6f)
+        }
+        if (output.isEmpty() && labelled) {
+            for (match in SHORT_DOT_DATE.findAll(line)) {
+                val firstValue = match.groupValues[1].toIntOrNull()
+                val secondValue = match.groupValues[2].toIntOrNull()
+                if (firstValue != null && secondValue != null) {
+                    output += ShortPair(firstValue, secondValue, 0.45f)
+                }
+            }
+        }
+        return output
+    }
+
+    private fun expandYear(token: String): Int? {
+        val value = token.toIntOrNull() ?: return null
+        return when {
+            token.length >= 4 -> value
+            value <= 79 -> 2000 + value
+            else -> 1900 + value
+        }
+    }
+
+    private fun isRealDate(year: Int, month: Int, day: Int): Boolean {
+        if (year < MIN_SUPPORTED_YEAR || year > MAX_SUPPORTED_YEAR) return false
+        if (month < 1 || month > 12) return false
+        if (day < 1) return false
+        return day <= daysInMonth(year, month)
+    }
+
+    private fun daysInMonth(year: Int, month: Int): Int {
+        val calendar = Calendar.getInstance()
+        calendar.clear()
+        calendar.set(year, month - 1, 1)
+        return calendar.getActualMaximum(Calendar.DAY_OF_MONTH)
+    }
+
+    private fun isOutsidePlausibleWindow(year: Int, month: Int, day: Int, todayIso: String?): Boolean {
+        if (todayIso.isNullOrBlank()) return false
+        val today = SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(todayIso) ?: return false
+        val parsed = Calendar.getInstance().apply {
+            clear()
+            set(year, month - 1, day)
+        }
+        val max = Calendar.getInstance().apply {
+            time = today
+            add(Calendar.DAY_OF_YEAR, MAX_FUTURE_DAYS)
+        }
+        val min = Calendar.getInstance().apply {
+            time = today
+            add(Calendar.YEAR, -MAX_PAST_YEARS)
+        }
+        return parsed.time.after(max.time) || parsed.time.before(min.time)
+    }
+
+    /** Mã lỗi máy đo (E-05, HI, LO…) – chỉ tin khi dòng đó không chứa chỉ số hợp lệ. */
+    fun detectMeterError(text: String): String? {
+        if (text.isBlank()) return null
+        for (rawLine in normalizeDisplayText(text).lines()) {
+            val line = normalizeDisplayText(rawLine)
+            if (line.isBlank()) continue
+            val lower = line.lowercase(Locale.US)
+            val hasUnitOrLabel = UNIT_HINTS.any { lower.contains(it) } ||
+                LABEL_HINTS.any { lower.contains(it) }
+            if (hasUnitOrLabel && lineCandidates(line).isNotEmpty()) continue
+            val match = ERROR_CODE.find(line) ?: continue
+            val code = BLANK_RUN.replace(match.value, "").uppercase(Locale.US)
+            return when {
+                code.startsWith("ERR") -> "ERR"
+                code.startsWith("E") -> "E-" + code.substring(1)
+                else -> code
+            }
+        }
+        return null
+    }
+
+    /** Chạy cả ba tầng trên một frame và trả về mọi trường đọc được. */
+    fun parse(
+        rawText: String,
+        lines: List<OcrLine> = emptyList(),
+        allowTextFallback: Boolean = true
+    ): MeterDisplayFields {
+        val spatial = extractReadingFromLines(lines)
+        val reading = spatial ?: if (allowTextFallback) extractReading(rawText) else null
+        return MeterDisplayFields(
+            glucose = reading,
+            time = extractTime(rawText),
+            date = extractDate(rawText),
+            errorCode = if (reading == null) detectMeterError(rawText) else null,
+            rawText = rawText,
+            lines = lines
+        )
+    }
+
+    /** Làm sạch chữ số OCR: O/Q -> 0, I/L/| -> 1. */
+    private fun normalizeNumericToken(token: String): String = token
+        .replace('O', '0', ignoreCase = true)
+        .replace('Q', '0', ignoreCase = true)
+        .replace('I', '1', ignoreCase = true)
+        .replace('L', '1', ignoreCase = true)
+        .replace('|', '1')
+}
