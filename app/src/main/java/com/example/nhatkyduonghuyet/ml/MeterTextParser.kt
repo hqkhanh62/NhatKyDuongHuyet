@@ -90,9 +90,7 @@ object MeterTextParser {
         val confidence: Float,
         val penalty: Int,
         val lineIndex: Int
-    ) {
-        val rank: Triple<Float, Int, Int> get() = Triple(confidence, -penalty, -lineIndex)
-    }
+    )
 
     private data class DateCandidate(
         val year: Int,
@@ -101,13 +99,26 @@ object MeterTextParser {
         val confidence: Float,
         val ambiguous: Boolean,
         val lineIndex: Int
-    ) {
-        val rank: Triple<Float, Int, Int> get() = Triple(confidence, -lineIndex, 0)
-    }
+    )
 
     private data class DayMonth(val day: Int, val month: Int, val ambiguous: Boolean, val swapped: Boolean)
 
     private data class ShortPair(val first: Int, val second: Int, val confidence: Float)
+
+    // Kotlin khong cung cap toan tu so sanh cho Triple/Pair o day, nen thu tu
+    // uu tien duoc viet ro rang: tin cay cao -> it moi hon -> dong som hon.
+    private fun isBetterTime(candidate: TimeCandidate, current: TimeCandidate?): Boolean {
+        if (current == null) return true
+        if (candidate.confidence != current.confidence) return candidate.confidence > current.confidence
+        if (candidate.penalty != current.penalty) return candidate.penalty < current.penalty
+        return candidate.lineIndex < current.lineIndex
+    }
+
+    private fun isBetterDate(candidate: DateCandidate, current: DateCandidate?): Boolean {
+        if (current == null) return true
+        if (candidate.confidence != current.confidence) return candidate.confidence > current.confidence
+        return candidate.lineIndex < current.lineIndex
+    }
 
     /**
      * Chuẩn hoá ký tự dễ nhầm trước khi parse. Dấu hai chấm giữa đúng một chữ số
@@ -290,8 +301,7 @@ object MeterTextParser {
                             penalty = 0,
                             lineIndex = index
                         )
-                        val current = best
-                        if (current == null || candidate.rank > current.rank) best = candidate
+                        if (isBetterTime(candidate, best)) best = candidate
                     }
                 }
             }
@@ -308,8 +318,7 @@ object MeterTextParser {
                     penalty = if (match.groupValues[3].isNotEmpty()) 30 else 0,
                     lineIndex = index
                 )
-                val current = best
-                if (current == null || candidate.rank > current.rank) best = candidate
+                if (isBetterTime(candidate, best)) best = candidate
             }
         }
 
@@ -396,8 +405,7 @@ object MeterTextParser {
                 if (isOutsidePlausibleWindow(candidate.year, candidate.month, candidate.day, todayIso)) {
                     continue
                 }
-                val current = best
-                if (current == null || candidate.rank > current.rank) best = candidate
+                if (isBetterDate(candidate, best)) best = candidate
             }
         }
 

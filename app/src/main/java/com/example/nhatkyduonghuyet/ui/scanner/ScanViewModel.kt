@@ -186,7 +186,7 @@ class ScanViewModel @Inject constructor(
         val review = _state.value.phase as? ScanPhase.Review ?: return
         if (review.isSaving) return
         _state.update { state ->
-            val phase = state.phase as? ScanPhase.Review ?: return@update
+            val phase = state.phase as? ScanPhase.Review ?: return@update state
             state.copy(phase = phase.copy(isSaving = true))
         }
         viewModelScope.launch {
@@ -394,7 +394,7 @@ class ScanViewModel @Inject constructor(
         val review = _state.value.phase as? ScanPhase.Review ?: return
         val updated = transform(review.draft)
         _state.update { state ->
-            val phase = state.phase as? ScanPhase.Review ?: return@update
+            val phase = state.phase as? ScanPhase.Review ?: return@update state
             state.copy(phase = phase.copy(draft = updated))
         }
         refreshInsight(updated)
@@ -406,7 +406,7 @@ class ScanViewModel @Inject constructor(
             val forecast = provisionalForecastResult(draft)
             val insight = analyze(draft, forecast)
             _state.update { state ->
-                val phase = state.phase as? ScanPhase.Review ?: return@update
+                val phase = state.phase as? ScanPhase.Review ?: return@update state
                 if (phase.draft != draft) return@update state
                 state.copy(phase = phase.copy(insight = insight, forecast = forecast))
             }
