@@ -10,12 +10,41 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.abs
 
-/** Result extracted from a glucose meter display. */
+/**
+ * Result extracted from a glucose meter display (Pro AI multi-layer OCR).
+ *
+ * @param value glucose in mmol/L, already auto-cleaned to the 2.0–30.0 range.
+ * @param date normalized `yyyy-MM-dd` when the meter screen shows a date, else null.
+ * @param time normalized `HH:mm` when the meter screen shows a clock, else null.
+ * @param source which engine produced the value (`ML_KIT` or `PIXEL`).
+ * @param rawText full OCR text of the meter screen (debugging + fallback parsing).
+ * @param confidence heuristic 0f..1f confidence of the numeric reading.
+ */
 data class ScannedGlucoseResult(
     val value: Float,
     val date: String? = null,
     val time: String? = null,
-    val source: String = "ML_KIT"
+    val source: String = "ML_KIT",
+    val rawText: String = "",
+    val confidence: Float = 0.8f
+) {
+    /** True when the date was read from the meter (vs. system fallback). */
+    val dateFromMeter: Boolean get() = date != null
+
+    /** True when the time was read from the meter (vs. system fallback). */
+    val timeFromMeter: Boolean get() = time != null
+}
+
+/**
+ * Multi-layer OCR parse of a meter screen: glucose value + clock + calendar.
+ * Used by the Auto Import Pipeline to decide meter-vs-system date/time.
+ */
+data class MeterOcrParse(
+    val glucose: Float?,
+    val date: String?,
+    val time: String?,
+    val rawText: String,
+    val confidence: Float
 )
 
 @Singleton
@@ -53,7 +82,9 @@ class GlucoseScanner @Inject constructor() {
                             value = value,
                             date = extractDate(rawText),
                             time = extractTime(rawText),
-                            source = "ML_KIT"
+                            source = "ML_KIT",
+                            rawText = rawText,
+                            confidence = estimateConfidence(rawText, value)
                         )
                     )
                 } else {
@@ -82,15 +113,27 @@ class GlucoseScanner @Inject constructor() {
         recognizer.process(inputImage)
             .addOnSuccessListener { visionText ->
                 val rawText = visionText.text
-                val mlKitValue = extractGlucose(rawText)
-                
+                // Prefer the spatial (large-display) reading, same policy as processImage.
+                val mlKitValue = if (visionText.textBlocks.isEmpty()) {
+                    extractGlucose(rawText)
+                } else {
+                    extractGlucose(visionText)
+                }
+
                 val finalResult = combineHybrid(pixelResult, mlKitValue, rawText)
                 onResult(finalResult)
             }
             .addOnFailureListener { error ->
                 // If ML Kit fails, we might still have pixel result
                 if (pixelResult != null && pixelResult.confidence >= PIXEL_AUTHORITATIVE_CONFIDENCE) {
-                    onResult(ScannedGlucoseResult(pixelResult.value, source = "PIXEL"))
+                    onResult(
+                        ScannedGlucoseResult(
+                            value = pixelResult.value,
+                            source = "PIXEL",
+                            rawText = "",
+                            confidence = pixelResult.confidence
+                        )
+                    )
                 } else {
                     onError(error)
                 }
@@ -109,7 +152,9 @@ class GlucoseScanner @Inject constructor() {
                     value = pixel.value,
                     date = extractDate(rawText),
                     time = extractTime(rawText),
-                    source = "PIXEL"
+                    source = "PIXEL",
+                    rawText = rawText,
+                    confidence = pixel.confidence
                 )
             }
         }
@@ -125,7 +170,9 @@ class GlucoseScanner @Inject constructor() {
                 value = it,
                 date = extractDate(rawText),
                 time = extractTime(rawText),
-                source = "ML_KIT"
+                source = "ML_KIT",
+                rawText = rawText,
+                confidence = estimateConfidence(rawText, it)
             )
         }
     }
@@ -280,53 +327,138 @@ private fun normalizeNumericToken(token: String): String = token
         .replace('L', '1', ignoreCase = true)
         .replace('|', '1')
 
+    /**
+     * Multi-layer OCR: clock recognition.
+     *
+     * Accepts `HH:mm` plus common meter/OCR variants (`HH.mm`, `HHhmm`, `HH;mm`)
+     * and always normalizes to zero-padded `HH:mm`. Hours must be 0–23 and
+     * minutes 0–59, otherwise the match is treated as noise.
+     */
     private fun extractTime(text: String): String? {
-        val timeRegex = Regex("\\b([01]?\\d|2[0-3]):([0-5]\\d)\\b")
-        return timeRegex.find(text)?.value
+        // Seven-segment colons are often misread as ';' or '.'.
+        val normalized = text.replace(';', ':')
+        val timeRegex = Regex("\\b([01]?\\d|2[0-3])\\s*[:.hH]\\s*([0-5]\\d)\\b")
+        val match = timeRegex.find(normalized) ?: return null
+        val hour = match.groupValues[1].toIntOrNull() ?: return null
+        val minute = match.groupValues[2].toIntOrNull() ?: return null
+        if (hour !in 0..23 || minute !in 0..59) return null
+        return "%02d:%02d".format(hour, minute)
     }
 
+    /**
+     * Multi-layer OCR: calendar recognition.
+     *
+     * Supported meter formats (all normalized to `yyyy-MM-dd`):
+     * - `YYYY-MM-DD` / `YYYY/MM/DD`
+     * - `DD/MM/YYYY`, `MM/DD/YYYY` (+ `-` and `.` separators)
+     * - `DD/MM`, `MM/DD` (+ `-` separator, current year is assumed)
+     *
+     * Ambiguous `11/12`-style pairs default to the Vietnamese `DD/MM`
+     * convention; pairs where one side exceeds 12 are disambiguated
+     * (`25/12` → 25 Dec, `12/25` → 25 Dec). Out-of-range months/days
+     * are rejected so OCR noise never becomes a diary date.
+     */
     private fun extractDate(text: String): String? {
-        val dateRegex = Regex(
-            "\\b(\\d{4}[-/]\\d{1,2}[-/]\\d{1,2})\\b|" +
-                "\\b(\\d{1,2}[-/]\\d{1,2}[-/]\\d{4})\\b|" +
-                "\\b(\\d{1,2}[-/]\\d{1,2})\\b"
-        )
-        val match = dateRegex.find(text)?.value ?: return null
-
-        return try {
-            val parts = match.split('/', '-')
-            val currentYear = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)
-
-            when (parts.size) {
-                3 -> {
-                    val p1 = parts[0].toInt()
-                    val p2 = parts[1].toInt()
-                    val p3 = parts[2].toInt()
-
-                    if (parts[0].length == 4) {
-                        if (p2 > 12 && p3 <= 12) {
-                            "%04d-%02d-%02d".format(p1, p3, p2)
-                        } else {
-                            "%04d-%02d-%02d".format(p1, p2, p3)
-                        }
-                    } else if (p1 > 12 && p2 <= 12) {
-                        "%04d-%02d-%02d".format(p3, p2, p1)
-                    } else {
-                        "%04d-%02d-%02d".format(p3, p1, p2)
-                    }
-                }
-                2 -> {
-                    "%04d-%02d-%02d".format(currentYear, parts[1].toInt(), parts[0].toInt())
-                }
-                else -> null
+        // Year-first: 2026-08-20, 2026/08/20.
+        Regex("\\b(\\d{4})[-/](\\d{1,2})[-/](\\d{1,2})\\b").find(text)?.let { match ->
+            val year = match.groupValues[1].toIntOrNull() ?: return@let
+            var month = match.groupValues[2].toIntOrNull() ?: return@let
+            var day = match.groupValues[3].toIntOrNull() ?: return@let
+            if (month > 12 && day <= 12) {
+                // Meter shows yyyy-dd-MM: swap back to yyyy-MM-dd.
+                val tmp = month
+                month = day
+                day = tmp
             }
+            return formatIsoDate(year, month, day)
+        }
+
+        // Day-first with 4-digit year: 20/08/2026, 20-08-2026, 20.08.2026.
+        Regex("\\b(\\d{1,2})[-/.](\\d{1,2})[-/.](\\d{4})\\b").find(text)?.let { match ->
+            val p1 = match.groupValues[1].toIntOrNull() ?: return@let
+            val p2 = match.groupValues[2].toIntOrNull() ?: return@let
+            val year = match.groupValues[3].toIntOrNull() ?: return@let
+            val (day, month) = disambiguateDayMonth(p1, p2)
+            return formatIsoDate(year, month, day)
+        }
+
+        // Short date without year: 20/08, 08-20. Current year is assumed.
+        // NOTE: '.' is intentionally not a short-date separator: it would
+        // match glucose decimals such as "5.7".
+        Regex("\\b(\\d{1,2})[-/](\\d{1,2})\\b").find(text)?.let { match ->
+            val p1 = match.groupValues[1].toIntOrNull() ?: return@let
+            val p2 = match.groupValues[2].toIntOrNull() ?: return@let
+            val (day, month) = disambiguateDayMonth(p1, p2)
+            val year = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)
+            return formatIsoDate(year, month, day)
+        }
+
+        return null
+    }
+
+    /**
+     * Resolves an ambiguous day/month pair. Vietnamese meters use `DD/MM`,
+     * so ties default to day-first; a side above 12 must be the day.
+     */
+    private fun disambiguateDayMonth(first: Int, second: Int): Pair<Int, Int> =
+        when {
+            first > 12 && second <= 12 -> first to second // DD/MM proven
+            second > 12 && first <= 12 -> second to first // MM/DD proven
+            else -> first to second // Ambiguous: Vietnamese DD/MM default
+        }
+
+    private fun formatIsoDate(year: Int, month: Int, day: Int): String? {
+        if (year !in 1990..2100 || month !in 1..12 || day !in 1..31) return null
+        return try {
+            val calendar = java.util.Calendar.getInstance().apply {
+                isLenient = false
+                set(year, month - 1, day, 0, 0, 0)
+                set(java.util.Calendar.MILLISECOND, 0)
+            }
+            // getTime() throws when the date does not exist (e.g. 31/02).
+            calendar.time
+            "%04d-%02d-%02d".format(year, month, day)
         } catch (_: Exception) {
             null
         }
     }
 
+    /**
+     * Heuristic confidence for the numeric reading: explicit units and a
+     * decimal fraction are the strongest signals on meter displays.
+     */
+    private fun estimateConfidence(rawText: String, value: Float): Float {
+        val context = rawText.lowercase()
+        val hasDecimal = value % 1f != 0f || rawText.contains('.') || rawText.contains(',')
+        return when {
+            context.contains("mmol") && hasDecimal -> 0.95f
+            context.contains("mmol") -> 0.9f
+            context.contains("mg") -> 0.9f
+            hasDecimal -> 0.85f
+            else -> 0.7f
+        }
+    }
+
     /** Visible to JVM tests without exposing parsing internals to production callers. */
     internal fun extractGlucoseForTesting(text: String): Float? = extractGlucose(text)
+
+    /** Visible to JVM tests without exposing parsing internals to production callers. */
+    internal fun extractDateForTesting(text: String): String? = extractDate(text)
+
+    /** Visible to JVM tests without exposing parsing internals to production callers. */
+    internal fun extractTimeForTesting(text: String): String? = extractTime(text)
+
+    /** Full multi-layer parse (glucose + date + time) for JVM tests. */
+    internal fun parseMeterTextForTesting(text: String): MeterOcrParse {
+        val glucose = extractGlucose(text)
+        return MeterOcrParse(
+            glucose = glucose,
+            date = extractDate(text),
+            time = extractTime(text),
+            rawText = text,
+            confidence = glucose?.let { estimateConfidence(text, it) } ?: 0f
+        )
+    }
 
     private companion object {
         const val MG_DL_PER_MMOL = 18.0f

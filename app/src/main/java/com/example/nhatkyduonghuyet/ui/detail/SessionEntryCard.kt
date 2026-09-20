@@ -215,14 +215,20 @@ fun SessionEntryCard(
             scanner = scanner,
             onDismiss = { cameraField = null },
             onResult = { result ->
+                // Pro AI: the meter clock wins when the AI read one;
+                // otherwise the existing time stays untouched.
+                val withMeterTime = result.time
+                    ?.takeIf { it.matches(TIME_TEXT_REGEX) }
+                    ?.let { meterTime -> logEntry.copy(time = meterTime) }
+                    ?: logEntry
                 val updatedEntry = when (field) {
                     "bgBefore" -> {
                         bgBeforeText = result.value.toInputText()
-                        logEntry.copy(bgBefore = result.value.toDouble())
+                        withMeterTime.copy(bgBefore = result.value.toDouble())
                     }
                     else -> {
                         bgAfterText = result.value.toInputText()
-                        logEntry.copy(bgAfter = result.value.toDouble())
+                        withMeterTime.copy(bgAfter = result.value.toDouble())
                     }
                 }
                 logEntry = updatedEntry
@@ -234,3 +240,5 @@ fun SessionEntryCard(
 
 private fun Float.toInputText(): String =
     String.format(Locale.US, "%.1f", this)
+
+private val TIME_TEXT_REGEX = Regex("^([01]?\\d|2[0-3]):[0-5]\\d$")

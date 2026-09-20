@@ -40,6 +40,28 @@
     <string name="status_high_risk">High Risk</string>
     <string name="status_danger">DANGER WARNING</string>
 
+    <!-- Pro AI Scanner -->
+    <string name="scanner_title">Pro AI Scan</string>
+    <string name="scanner_hint_aim">Aim the meter screen inside the green frame</string>
+    <string name="scanner_hint_live">AI is reading value • time • date in real time</string>
+    <string name="scanner_hint_hold_still">Could not read — hold the meter still and avoid glare</string>
+    <string name="scanner_noise_filtered">AI filtered %1$d noisy readings</string>
+    <string name="scanner_result_title">AI Scan Result</string>
+    <string name="scanner_confirm_save">Confirm &amp; Save</string>
+    <string name="scanner_saving">Saving…</string>
+    <string name="scanner_rescan">Rescan</string>
+    <string name="scanner_continue">Keep Scanning</string>
+    <string name="scanner_view_diary">View Diary</string>
+    <string name="scanner_saved">Saved to diary</string>
+    <string name="scanner_duplicate">Already exists — duplicate skipped</string>
+    <string name="scanner_from_meter">Meter</string>
+    <string name="scanner_from_system">System</string>
+    <string name="scanner_hba1c_provisional">Estimated HbA1c: %1$s (provisional)</string>
+    <string name="scanner_forecast_next">AI forecasts next reading: %1$s mmol/L (%2$s)</string>
+    <string name="scanner_need_camera">Camera permission is required to scan the meter screen.</string>
+    <string name="scanner_grant_camera">Grant camera permission</string>
+    <string name="scanner_danger">DANGER WARNING</string>
+
     <!-- AI analysis consent -->
     <string name="consent_title">Confirm data sharing</string>
     <string name="consent_body">To generate an AI analysis, a portion of your blood glucose log (up to 20 entries) will be sent to a server for processing. This health data is used only to produce a summary, never as a medical diagnosis. Do you agree to share this data with the server?</string>

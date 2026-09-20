@@ -79,14 +79,11 @@ fun AppNavHost(
         }
 
         composable(GlucoseScreen.Scanner.route) {
-            val dashboardViewModel: com.example.nhatkyduonghuyet.ui.dashboard.DashboardViewModel = hiltViewModel()
-            ScannerScreen(
-                navController = navController,
-                scanner = scanner,
-                onGlucoseDetected = { result ->
-                    dashboardViewModel.onGlucoseScanned(result)
-                }
-            )
+            // Pro AI scanner: ScannerViewModel owns the full Scan → Review →
+            // Save → Forecast → Warn loop (Auto Import Pipeline + Room).
+            // The Dashboard flow observes the same Room tables, so HbA1c,
+            // forecasts and risk insights refresh automatically after save.
+            ScannerScreen(navController = navController)
         }
         
         composable(GlucoseScreen.Chart.route) {

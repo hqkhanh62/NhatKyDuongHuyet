@@ -14,6 +14,8 @@ import com.example.nhatkyduonghuyet.domain.usecase.CloudInsightResult
 import com.example.nhatkyduonghuyet.domain.usecase.DetectRiskPattern
 import com.example.nhatkyduonghuyet.domain.usecase.GeminiAnalysisUseCase
 import com.example.nhatkyduonghuyet.ml.ScannedGlucoseResult
+import com.example.nhatkyduonghuyet.scan.ScanAutoImportPipeline
+import com.example.nhatkyduonghuyet.scan.ScanSaveResult
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -34,7 +36,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
 import java.text.SimpleDateFormat
 import java.util.Calendar
-import java.util.Date
 import java.util.Locale
 import javax.inject.Inject
 
@@ -51,7 +52,8 @@ class DashboardViewModel @Inject constructor(
     private val realtimePredictor: RealtimePredictor,
     private val detectRisk: DetectRiskPattern,
     private val aiRepo: AIRepository,
-    private val geminiUseCase: GeminiAnalysisUseCase
+    private val geminiUseCase: GeminiAnalysisUseCase,
+    private val scanPipeline: ScanAutoImportPipeline
 ) : ViewModel() {
 
     fun exportToPdf(context: Context) {
@@ -131,91 +133,30 @@ class DashboardViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Legacy entry-point for scans arriving outside the Pro scanner screen.
+     * Delegates to the shared [ScanAutoImportPipeline] (meter-first
+     * date/time, auto session, auto clean, duplicate guard) so every scan
+     * path saves identically; the [uiState] flow then retriggers the full
+     * forecast + HbA1c + risk-insight pipeline (Real-time AI Loop).
+     */
     fun onGlucoseScanned(result: ScannedGlucoseResult) {
         viewModelScope.launch {
-            val now = Date()
-            val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-            val hf = SimpleDateFormat("HH:mm", Locale.getDefault())
-            
-            val finalTime = result.time ?: hf.format(now)
-            var finalDate = result.date ?: sdf.format(now)
-            
-            // Validate date format yyyy-MM-dd
-            try {
-                val parts = finalDate.split("-")
-                if (parts.size == 3) {
-                    val year = parts[0].toInt()
-                    val month = parts[1].toInt()
-                    val day = parts[2].toInt()
-                    
-                    if (month > 12 && day <= 12) {
-                        // Swapped month and day (yyyy-dd-MM)
-                        finalDate = "%04d-%02d-%02d".format(year, day, month)
-                    } else if (month > 12) {
-                        // Still invalid month, fallback to today
-                        finalDate = sdf.format(now)
+            val draft = scanPipeline.buildDraft(result) ?: return@launch
+            when (scanPipeline.confirmAndSave(draft)) {
+                is ScanSaveResult.Duplicate -> return@launch
+                is ScanSaveResult.Rejected -> return@launch
+                is ScanSaveResult.Saved -> {
+                    _geminiInsight.value = GeminiInsightUiState.Idle
+                    lastInsightFingerprint = null
+                    insightRequestJob?.cancel()
+
+                    if (aiRepo.checkRetrainStatus()) {
+                        _showRetrainDialog.value = true
                     }
+                    aiRepo.autoCalibrate()
                 }
-            } catch (e: Exception) {
-                finalDate = sdf.format(now)
             }
-
-            val hour = finalTime.substringBefore(':').toIntOrNull()
-                ?: Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
-            
-            var session = "Sáng"
-            val scannedVal = result.value.toDouble()
-            
-            when {
-                hour < 10 -> session = "Sáng"
-                hour in 10..15 -> session = "Trưa"
-                hour in 16..19 -> session = "Chiều"
-                else -> session = "Tối"
-            }
-
-            val existingEntries = repo.getLogsByDate(finalDate).first()
-            
-            // Prevention of duplicate identical scans
-            val isDuplicate = existingEntries.any { 
-                it.session == session && 
-                (it.bgBefore == scannedVal || it.bgAfter == scannedVal) &&
-                it.time == finalTime 
-            }
-            if (isDuplicate) return@launch
-
-            val existing = existingEntries.find { it.session == session }
-
-            if (existing != null) {
-                // Update existing record
-                val updated = if (hour % 2 == 0) { // Simple heuristic or just check which one is null
-                     if (existing.bgBefore == null) existing.copy(bgBefore = scannedVal, time = finalTime)
-                     else existing.copy(bgAfter = scannedVal, time = finalTime)
-                } else {
-                     if (existing.bgAfter == null) existing.copy(bgAfter = scannedVal, time = finalTime)
-                     else existing.copy(bgBefore = scannedVal, time = finalTime)
-                }
-                repo.insertLog(updated)
-            } else {
-                // Create new record
-                repo.insertLog(
-                    LogEntry(
-                        date = finalDate,
-                        session = session,
-                        time = finalTime,
-                        bgBefore = scannedVal,
-                        note = "Auto-scanned via AI Camera"
-                    )
-                )
-            }
-
-            _geminiInsight.value = GeminiInsightUiState.Idle
-            lastInsightFingerprint = null
-            insightRequestJob?.cancel()
-
-            if (aiRepo.checkRetrainStatus()) {
-                _showRetrainDialog.value = true
-            }
-            aiRepo.autoCalibrate()
         }
     }
 

@@ -53,6 +53,28 @@
     <string name="medication_monthly_count">Đã uống (Tháng)</string>
     <string name="import_csv">Nhập đơn thuốc (CSV)</string>
 
+    <!-- Pro AI Scanner -->
+    <string name="scanner_title">Quét AI Pro</string>
+    <string name="scanner_hint_aim">Đưa màn hình máy đo vào khung xanh</string>
+    <string name="scanner_hint_live">AI đang quét số • giờ • ngày theo thời gian thực</string>
+    <string name="scanner_hint_hold_still">Chưa đọc được — giữ máy đo yên, tránh lóa rồi thử lại</string>
+    <string name="scanner_noise_filtered">AI đã lọc %1$d giá trị nhiễu</string>
+    <string name="scanner_result_title">Kết quả quét AI</string>
+    <string name="scanner_confirm_save">Xác nhận &amp; Lưu</string>
+    <string name="scanner_saving">Đang lưu…</string>
+    <string name="scanner_rescan">Quét lại</string>
+    <string name="scanner_continue">Quét tiếp</string>
+    <string name="scanner_view_diary">Xem nhật ký</string>
+    <string name="scanner_saved">Đã lưu vào nhật ký</string>
+    <string name="scanner_duplicate">Đã tồn tại — không lưu trùng</string>
+    <string name="scanner_from_meter">Máy đo</string>
+    <string name="scanner_from_system">Hệ thống</string>
+    <string name="scanner_hba1c_provisional">HbA1c ước tính: %1$s (tạm tính)</string>
+    <string name="scanner_forecast_next">AI dự báo lần đo tới: %1$s mmol/L (%2$s)</string>
+    <string name="scanner_need_camera">Cần cấp quyền Camera để quét màn hình máy đo.</string>
+    <string name="scanner_grant_camera">Cấp quyền camera</string>
+    <string name="scanner_danger">CẢNH BÁO NGUY HIỂM</string>
+
     <!-- AI analysis consent -->
     <string name="consent_title">Xác nhận gửi dữ liệu</string>
     <string name="consent_body">Để tạo phân tích AI, một phần nhật ký đường huyết của bạn (tối đa 20 bản ghi) sẽ được gửi đến máy chủ xử lý. Dữ liệu sức khỏe này chỉ được dùng để tạo bản tóm tắt, không được dùng để chẩn đoán y khoa. Bạn có đồng ý gửi dữ liệu lên máy chủ?</string>
