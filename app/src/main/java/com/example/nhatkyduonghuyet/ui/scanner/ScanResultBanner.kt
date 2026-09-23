@@ -161,6 +161,18 @@ fun ScanReviewBanner(
             }
         }
 
+        // Dong mm-dd chu nho o tren cung man hinh la de bi nham nhat: hai cach doc
+        // deu hop le ve lich thi AI khong the tu ket luan, nen bao ro trong banner.
+        if (draft.dateAmbiguous) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = "Ngày máy đo viết dạng MM-DD nên có thể bị đảo với DD/MM - " +
+                    "kiểm lại trước khi lưu",
+                color = LEVEL_WARNING,
+                fontSize = 11.sp
+            )
+        }
+
         if (draft.confidence < 0.6f) {
             Spacer(Modifier.height(4.dp))
             Text(

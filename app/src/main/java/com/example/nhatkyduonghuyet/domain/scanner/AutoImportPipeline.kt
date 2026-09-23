@@ -48,7 +48,9 @@ object AutoImportPipeline {
         val valueSource: String,
         val confidence: Float,
         val ocrText: String,
-        val fields: MeterDisplayFields = MeterDisplayFields()
+        val fields: MeterDisplayFields = MeterDisplayFields(),
+        /** Máy đo hiển thị ngày dạng MM-DD và AI phải đoán chiều đảo: người dùng nên ngó. */
+        val dateAmbiguous: Boolean = false
     ) {
         val valueText: String get() = formatMmol(value)
         val dateText: String get() = date.split("-").let { parts ->
@@ -143,7 +145,8 @@ object AutoImportPipeline {
             valueSource = valueSource,
             confidence = confidence,
             ocrText = fields.readableText,
-            fields = fields
+            fields = fields,
+            dateAmbiguous = resolvedDate.ambiguous
         )
     }
 

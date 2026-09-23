@@ -1,6 +1,7 @@
 package com.example.nhatkyduonghuyet.domain.scanner
 
 import com.example.nhatkyduonghuyet.data.local.entity.LogEntry
+import com.example.nhatkyduonghuyet.ml.GlucoseReading
 import com.example.nhatkyduonghuyet.ml.MeterDate
 import com.example.nhatkyduonghuyet.ml.MeterDisplayFields
 import com.example.nhatkyduonghuyet.ml.MeterTextParser
@@ -301,5 +302,28 @@ class AutoImportPipelineTest {
         assertEquals("2026-08-20", draft.date)
         assertEquals("20/08/2026", draft.dateText)
         assertEquals(FieldSource.METER, draft.dateSource)
+    }
+    @Test
+    fun `draft carries the mm-dd ambiguity flag to the review banner`() {
+        val fields = MeterDisplayFields(
+            glucose = GlucoseReading(6.2f, 0.9f, fromSpatialLine = true, hasUnit = true, hasDecimal = true),
+            time = MeterTime(14, 35),
+            date = MeterDate(year = 2026, month = 9, day = 8, confidence = 0.6f, ambiguous = true)
+        )
+        val draft = AutoImportPipeline.draft(
+            value = 6.2f,
+            fields = fields,
+            systemDate = "2026-09-23",
+            systemTime = "20:00",
+            existingForDate = emptyList()
+        )
+        assertTrue(draft.dateAmbiguous)
+        assertEquals("2026-09-08", draft.date)
+
+        val certain = fields.copy(date = fields.date?.copy(ambiguous = false))
+        assertEquals(
+            false,
+            AutoImportPipeline.draft(6.2f, certain, "2026-09-23", "20:00", emptyList()).dateAmbiguous
+        )
     }
 }
