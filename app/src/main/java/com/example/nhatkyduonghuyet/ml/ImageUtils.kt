@@ -16,10 +16,23 @@ object ImageUtils {
     val DISPLAY_ROI: NormalizedRect = DEFAULT_DISPLAY_ROI
 
     /** Minimum width (px) fed to OCR; small crops are upscaled to this. */
-    private const val MIN_OCR_WIDTH = 720
+    private const val MIN_OCR_WIDTH = 900
 
-    /** Never blow a crop up more than this, it only adds blur. */
+    /**
+     * Minimum height (px) fed to OCR. Without this the upscale only looked at the
+     * width, so a wide-but-short crop of a meter display was never enlarged and
+     * the small status row (mm-dd / HH:mm) stayed at ~12 px of glyph height - far
+     * below what ML Kit can read reliably.
+     */
+    private const val MIN_OCR_HEIGHT = 420
+
+    /** Never blow the main crop up more than this, it only adds blur. */
     private const val MAX_UPSCALE = 4f
+
+    /** The small-text strip is tiny on purpose, so it may be blown up harder. */
+    private const val SMALL_TEXT_MIN_WIDTH = 1400
+    private const val SMALL_TEXT_MIN_HEIGHT = 220
+    private const val SMALL_TEXT_MAX_UPSCALE = 8f
 
     fun rotateBitmap(source: Bitmap, degrees: Int): Bitmap {
         val normalized = ((degrees % 360) + 360) % 360
@@ -40,14 +53,24 @@ object ImageUtils {
     }
 
     /**
-     * Upscales a small crop so ML Kit sees enough pixels per digit. ML Kit's
-     * latin recognizer needs roughly 32 px of glyph height; a crop taken from a
-     * small preview can fall well below that, which is a common cause of
-     * mis-read seven-segment digits.
+     * Upscales a crop so ML Kit sees enough pixels per glyph, honouring both axes.
+     *
+     * The latin recognizer needs roughly 32 px of glyph height. Sizing only the
+     * width (the old behaviour) left short crops untouched: a full-width frame of
+     * a meter display is 900+ px wide but its date row can be 12 px tall, and that
+     * row is exactly what the time/date layers need.
      */
-    fun upscaleForOcr(source: Bitmap, minWidth: Int = MIN_OCR_WIDTH): Bitmap {
-        if (source.width >= minWidth) return source
-        val scale = (minWidth.toFloat() / source.width).coerceAtMost(MAX_UPSCALE)
+    fun upscaleForOcr(source: Bitmap, minWidth: Int = MIN_OCR_WIDTH): Bitmap =
+        scaleToCover(source, minWidth, MIN_OCR_HEIGHT, MAX_UPSCALE)
+
+    /** Scale so that width >= [minWidth] *and* height >= [minHeight], capped at [maxScale]. */
+    fun scaleToCover(source: Bitmap, minWidth: Int, minHeight: Int, maxScale: Float): Bitmap {
+        if (source.width <= 0 || source.height <= 0) return source
+        if (source.width >= minWidth && source.height >= minHeight) return source
+        val widthScale = minWidth.toFloat() / source.width
+        val heightScale = minHeight.toFloat() / source.height
+        val scale = maxOf(widthScale, heightScale).coerceAtMost(maxScale)
+        if (scale <= 1.001f) return source
         val targetWidth = (source.width * scale).toInt().coerceAtLeast(1)
         val targetHeight = (source.height * scale).toInt().coerceAtLeast(1)
         return Bitmap.createScaledBitmap(source, targetWidth, targetHeight, true)
@@ -82,4 +105,23 @@ object ImageUtils {
     /** Crop + enhance + upscale pipeline shared by every scanner entry point. */
     fun prepareOcrBitmap(rotated: Bitmap, roi: NormalizedRect): Bitmap =
         upscaleForOcr(enhanceForOcr(cropNormalized(rotated, roi)))
+
+    /**
+     * Prepares the full-height sweep image that is searched for the small status
+     * row. Harder contrast than the main pass: the mm-dd / HH:mm glyphs are thin
+     * and sit next to the segment labels, and at this size a soft edge is enough
+     * for ML Kit to merge two digits into one.
+     */
+    fun prepareSmallTextBitmap(rotated: Bitmap, roi: NormalizedRect): Bitmap {
+        val cropped = cropNormalized(rotated, roi)
+        val enhanced = enhanceForOcr(cropped, contrast = SMALL_TEXT_CONTRAST)
+        return scaleToCover(
+            source = enhanced,
+            minWidth = SMALL_TEXT_MIN_WIDTH,
+            minHeight = SMALL_TEXT_MIN_HEIGHT,
+            maxScale = SMALL_TEXT_MAX_UPSCALE
+        )
+    }
+
+    private const val SMALL_TEXT_CONTRAST = 2.1f
 }

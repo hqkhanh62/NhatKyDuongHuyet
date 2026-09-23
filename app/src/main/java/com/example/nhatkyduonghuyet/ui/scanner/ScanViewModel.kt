@@ -73,8 +73,19 @@ class ScanViewModel @Inject constructor(
                 overlay = state.overlay.copy(
                     meterTime = fields.time?.formatted,
                     meterDate = fields.date?.dayMonth,
+                    smallTextSweep = fields.smallTextScanned,
                     hint = fields.errorCode?.let { code -> "Máy đo đang báo lỗi $code" }
-                        ?: if (fields.glucose == null) "Chưa thấy chỉ số - giữ yên màn hình trong khung" else null
+                        ?: when {
+                            fields.glucose == null ->
+                                "Chưa thấy chỉ số - lồng cả màn hình máy đo vào khung, giữ yên"
+                            fields.time == null && fields.date == null ->
+                                if (fields.smallTextScanned) {
+                                    "Máy đo không hiển thị giờ/ngày - sẽ dùng giờ điện thoại"
+                                } else {
+                                    "Đang quét dòng trên cùng để tìm mm-dd và hh:mm…"
+                                }
+                            else -> null
+                        }
                 )
             )
         }

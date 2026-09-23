@@ -55,7 +55,9 @@ data class ScanOverlayState(
     val liveValue: String? = null,
     val meterTime: String? = null,
     val meterDate: String? = null,
-    val hint: String? = null
+    val hint: String? = null,
+    /** Da chay luot quet toan chieu cao man hinh de tim dong mm-dd / hh:mm. */
+    val smallTextSweep: Boolean = false
 )
 
 private val GUIDE_GREEN = Color(0xFF4CAF50)
@@ -97,14 +99,17 @@ fun BoxScope.ScanAlignmentOverlay(
     spec: ScanFrameSpec,
     state: ScanOverlayState
 ) {
-    // 1. Mặt nạ tối: chỉ vùng trong khung được giữ nguyên độ sáng.
+    // 1. Mặt nạ. Phần trên/dưới khung chỉ bị *tối nhẹ*: AI thật sự đọc cả cột này
+    // (lượt quét chữ nhỏ phủ hết chiều cao), nên không được vẽ như vùng bị loại.
+    // Hai cột trái/phải mới là vùng bị cắt khỏi phân tích.
     val maskColor = Color.Black.copy(alpha = 0.55f)
+    val softMaskColor = Color.Black.copy(alpha = 0.20f)
     val sideHeight = ((spec.viewHeight - spec.frameHeight) / 2f).coerceAtLeast(0.dp)
     val sideWidth = ((spec.viewWidth - spec.frameWidth) / 2f).coerceAtLeast(0.dp)
-    Box(modifier = Modifier.fillMaxWidth().height(sideHeight).align(Alignment.TopCenter).background(maskColor))
-    Box(modifier = Modifier.fillMaxWidth().height(sideHeight).align(Alignment.BottomCenter).background(maskColor))
-    Box(modifier = Modifier.width(sideWidth).height(spec.frameHeight).align(Alignment.CenterStart).background(maskColor))
-    Box(modifier = Modifier.width(sideWidth).height(spec.frameHeight).align(Alignment.CenterEnd).background(maskColor))
+    Box(modifier = Modifier.fillMaxWidth().height(sideHeight).align(Alignment.TopCenter).background(softMaskColor))
+    Box(modifier = Modifier.fillMaxWidth().height(sideHeight).align(Alignment.BottomCenter).background(softMaskColor))
+    Box(modifier = Modifier.width(sideWidth).fillMaxHeight().align(Alignment.CenterStart).background(maskColor))
+    Box(modifier = Modifier.width(sideWidth).fillMaxHeight().align(Alignment.CenterEnd).background(maskColor))
 
     // 2. Khung neo + 4 góc.
     Box(
@@ -125,20 +130,24 @@ fun BoxScope.ScanAlignmentOverlay(
         CornerBracket(accent = accent, alignment = Alignment.BottomStart, fromTop = false, fromLeft = true, length = 30.dp)
         CornerBracket(accent = accent, alignment = Alignment.BottomEnd, fromTop = false, fromLeft = false, length = 30.dp)
 
-        // 3. Dải quét chạy lên xuống cho tới khi khoá được chỉ số.
+        // 3. Dải quét chạy hết chiều cao khung hình, từ trên xuống dưới, cho tới khi
+        //    khoá được chỉ số - đúng vùng AI thực sự phân tích (số lớn ở giữa, dòng
+        //    mm-dd / hh:mm ở mép trên, nhãn AVG/MAX ở mép dưới).
         if (!state.locked) {
             val transition = rememberInfiniteTransition(label = "scanline")
             val fraction by transition.animateFloat(
                 initialValue = 0f,
                 targetValue = 1f,
-                animationSpec = infiniteRepeatable(tween(1900, easing = LinearEasing), RepeatMode.Reverse),
+                animationSpec = infiniteRepeatable(tween(1600, easing = LinearEasing), RepeatMode.Reverse),
                 label = "scanline"
             )
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(2.dp)
-                    .offset(y = spec.frameHeight * (fraction - 0.5f))
+                    // y = 0 la mép trên của khung; bien tren/duoi la dem giua khung hinh
+                    // va khung, nen dai quat di het (viewHeight - frameHeight) / 2 ve moi phia.
+                    .offset(y = ((spec.viewHeight - spec.frameHeight) / 2f) * (2f * fraction - 1f))
                     .background(
                         brush = Brush.horizontalGradient(
                             listOf(Color.Transparent, GUIDE_GREEN.copy(alpha = 0.95f), Color.Transparent)
@@ -161,6 +170,9 @@ fun BoxScope.ScanAlignmentOverlay(
             state.liveValue?.let { InfoChip(text = "$it mmol/L", emphasis = true) }
             state.meterTime?.let { InfoChip(text = "Giờ $it", emphasis = false) }
             state.meterDate?.let { InfoChip(text = "Ngày $it", emphasis = false) }
+            if (state.meterTime == null && state.meterDate == null && state.smallTextSweep) {
+                InfoChip(text = "Đã quét cả màn hình", emphasis = false)
+            }
         }
         if (!state.locked && state.hits > 0) {
             StabilityDots(hits = state.hits, required = state.required)

@@ -57,7 +57,41 @@ object MeterTextParser {
     private val ISO_DATE = Regex("(?<!\\d)(\\d{4})([-/.])(\\d{1,2})\\2(\\d{1,2})(?!\\d)")
     private val FULL_DATE = Regex("(?<!\\d)(\\d{1,2})([-/.])(\\d{1,2})\\2(\\d{2,4})(?!\\d)")
     private val SHORT_DATE = Regex("(?<!\\d)(\\d{1,2})([-/])(\\d{1,2})(?!\\d)")
+
+    // ------------------------------------------------- chế độ đọc chữ nhỏ
+    /**
+     * Cặp số cạnh nhau mà ML Kit hay đọc lẫn chữ cái thành số (dùng cho mm-dd, hh:mm).
+     *
+     * Dấu chấm cố tình bị loại: chỉ số thập phân cũng dùng nó, nên "5.O" mà được
+     * "sửa" thành "5.0" là AI đổi luôn đường huyết của người bệnh. Ngày/giờ viết
+     * bằng dấu chấm chỉ được sửa khi cả hai vế đủ 2 chữ số ("09.23", "14.35").
+     */
+    private val NUMERIC_PAIR = Regex(
+        "[0-9OoQlIi|]{1,2}\\s*[:;\\-]\\s*[0-9OoSsZzGbBlIi|]{1,2}(?:\\s*[:;.\\-]\\s*[0-9OoSsZz]{1,2})?"
+    )
+    private val NUMERIC_PAIR_DOT = Regex("[0-9OoQDlIi]{2}\\.\\s*[0-9OoSsZzGbB]{2}")
+    /** "09-2314:35" - hai trường dính liền vì ML Kit không thấy khoảng trắng. */
+    private val GLUED_DATE_TIME = Regex("(\\d{1,2}[-/.]\\d{1,2})(\\d{1,2}[:;]\\d{2})")
+    private val GLUED_TIME_DATE = Regex("(\\d{1,2}[:;]\\d{2})(\\d{1,2}[-/.]\\d{1,2})")
+    /** Cặp số dính liền: xoá giờ trước khi tìm ngày, chỉ dùng : và ; để dấu "."
+     *  không ăn mất ngày dạng "09.23". */
+    private val LOOSE_TIME_STRIP =
+        Regex("(?<![\\d:;])([0-9OoQlIi|]{1,2})\\s*[:;]\\s*([0-5][0-9OoSsZz])(?:\\s*[:;]\\s*\\d{1,2})?(?![\\d:])")
+    /** Giờ ở dòng chữ nhỏ: chấp nhận ";" hoặc "." thay cho ":" vì LCD mờ dễ nhầm. */
+    private val LOOSE_TIME =
+        Regex("(?<![\\d:])([0-9OoQlIi|]{1,2})\\s*[:;.]\\s*([0-5][0-9OoSsZz]){1}(?:\\s*[:;.]\\s*\\d{1,2})?(?![\\d:])")
+    private val DIGIT_MAP = mapOf(
+        'O' to '0', 'o' to '0', 'Q' to '0', 'q' to '0', 'D' to '0',
+        'l' to '1', 'I' to '1', 'i' to '1', '|' to '1', '!' to '1',
+        'Z' to '2', 'z' to '2',
+        'S' to '5', 's' to '5',
+        'G' to '6', 'g' to '6',
+        'B' to '8', 'b' to '8'
+    )
+
     private val SHORT_DOT_DATE = Regex("(?<!\\d)(\\d{2})[.](\\d{2})(?!\\d)")
+    /** Dong chu nho: LCD mo khien "-" thuong bi doc thanh ".", nen cho phep ca 3. */
+    private val LOOSE_SHORT_DATE = Regex("(?<!\\d)(\\d{1,2})([-/.])(\\d{1,2})(?!\\d)")
     private val ERROR_CODE = Regex(
         "(?<![0-9A-Za-z])(E[\\s-]?\\d{1,3}|ERR(?:OR)?|HI|LO)(?![0-9A-Za-z])",
         RegexOption.IGNORE_CASE
@@ -68,6 +102,13 @@ object MeterTextParser {
     private const val MAX_PAST_YEARS = 5
     private const val MIN_SUPPORTED_YEAR = 2000
     private const val MAX_SUPPORTED_YEAR = 2100
+
+    private const val MILLIS_PER_DAY = 86_400_000L
+    private const val RECENCY_TIE_DAYS = 3L
+    private const val RECENCY_BONUS = 0.03f
+
+    /** Nguồn phụ phải tin cậy hơn nguồn chính khoản này mới được thay. */
+    private const val MERGE_TIE_MARGIN = 0.05f
 
     /** Dòng thắng cuộc phải cao hơn median cỡ này lần mới được coi là số lớn giữa màn hình. */
     private const val DOMINANT_LINE_RATIO = 1.6f
@@ -103,7 +144,13 @@ object MeterTextParser {
 
     private data class DayMonth(val day: Int, val month: Int, val ambiguous: Boolean, val swapped: Boolean)
 
-    private data class ShortPair(val first: Int, val second: Int, val confidence: Float)
+    private data class ShortPair(
+        val first: Int,
+        val second: Int,
+        val confidence: Float,
+        /** "-" = máy đo để kiểu MM/DD; "/" hoặc "." = kiểu DD/MM. */
+        val dashSeparated: Boolean = false
+    )
 
     // Kotlin khong cung cap toan tu so sanh cho Triple/Pair o day, nen thu tu
     // uu tien duoc viet ro rang: tin cay cao -> it moi hon -> dong som hon.
@@ -277,7 +324,9 @@ object MeterTextParser {
      * 7:30 AM và 7.45 PM. Dạng dùng dấu chấm ("8.30") chỉ được chấp nhận khi
      * dòng có nhãn Time/giờ hoặc kèm AM/PM, để "5.7" không bao giờ thành giờ.
      */
-    fun extractTime(text: String): MeterTime? {
+    fun extractTime(text: String): MeterTime? = extractTime(text, loose = false)
+
+    private fun extractTime(text: String, loose: Boolean): MeterTime? {
         if (text.isBlank()) return null
         var best: TimeCandidate? = null
         val lines = normalizeDisplayText(text).lines()
@@ -322,6 +371,28 @@ object MeterTextParser {
             }
         }
 
+        // Che do doc chu nho: ": " bi doc thanh ";" hoac "." tren LCD mo.
+        if (loose) {
+            for (index in lines.indices) {
+                val line = normalizeDisplayText(repairOcrDigits(lines[index]))
+                if (line.isBlank()) continue
+                val labelled = TIME_LABEL.containsMatchIn(line)
+                for (match in LOOSE_TIME.findAll(line)) {
+                    val hour = normalizeNumericToken(match.groupValues[1]).toIntOrNull() ?: continue
+                    val minute = normalizeNumericToken(match.groupValues[2]).toIntOrNull() ?: continue
+                    if (hour > 23 || minute > 59) continue
+                    val candidate = TimeCandidate(
+                        hour = hour,
+                        minute = minute,
+                        confidence = if (labelled) 0.85f else 0.66f,
+                        penalty = if (labelled) 10 else 45,
+                        lineIndex = index
+                    )
+                    if (isBetterTime(candidate, best)) best = candidate
+                }
+            }
+        }
+
         return best?.let { MeterTime(it.hour, it.minute, it.confidence) }
     }
 
@@ -337,6 +408,18 @@ object MeterTextParser {
         text: String,
         fallbackYear: Int = Calendar.getInstance().get(Calendar.YEAR),
         todayIso: String? = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+    ): MeterDate? = extractDate(text, fallbackYear, todayIso, loose = false)
+
+    /**
+     * @param loose chế độ đọc dòng chữ nhỏ: số đã được sửa lỗi nhận dạng, dấu
+     *   chấm/phẩy_chấm cũng được coi là dấu phân cách giờ, và cặp `MM-DD` phân biệt
+     *   với `DD/MM` theo đúng kiểu máy đo Việt Nam (gạch ngang = tháng trước).
+     */
+    private fun extractDate(
+        text: String,
+        fallbackYear: Int,
+        todayIso: String?,
+        loose: Boolean
     ): MeterDate? {
         if (text.isBlank()) return null
         var best: DateCandidate? = null
@@ -344,7 +427,8 @@ object MeterTextParser {
 
         for (index in lines.indices) {
             // Giờ bị xoá trước khi tìm ngày, nếu không "08.30" dễ thành 30/08.
-            val line = COLON_TIME.replace(normalizeDisplayText(lines[index]), " ")
+            val stripped = COLON_TIME.replace(normalizeDisplayText(lines[index]), " ")
+            val line = if (loose) LOOSE_TIME_STRIP.replace(stripped, " ") else stripped
             if (line.isBlank()) continue
             val labelled = DATE_LABEL.containsMatchIn(line)
             val found = mutableListOf<DateCandidate>()
@@ -368,35 +452,37 @@ object MeterTextParser {
                 val year = expandYear(match.groupValues[4]) ?: continue
                 val first = match.groupValues[1].toIntOrNull() ?: continue
                 val second = match.groupValues[3].toIntOrNull() ?: continue
-                for (option in orientationCandidates(first, second)) {
-                    if (isRealDate(year, option.month, option.day)) {
-                        found += DateCandidate(
-                            year = year,
-                            month = option.month,
-                            day = option.day,
-                            confidence = if (option.swapped) 0.7f else if (labelled) 0.9f else 0.85f,
-                            ambiguous = option.ambiguous,
-                            lineIndex = index
-                        )
-                        break
-                    }
+                // Gach ngang la kieu MM-DD cua may do; gach cheo la DD/MM kieu Viet Nam.
+                val monthFirst = match.groupValues[2] == "-"
+                for (option in orientationCandidates(first, second, monthFirst)) {
+                    if (!isRealDate(year, option.month, option.day)) continue
+                    found += DateCandidate(
+                        year = year,
+                        month = option.month,
+                        day = option.day,
+                        confidence = (if (option.swapped) 0.7f else if (labelled) 0.9f else 0.85f) +
+                            recencyBonus(year, option.month, option.day, todayIso, option.ambiguous),
+                        ambiguous = option.ambiguous,
+                        lineIndex = index
+                    )
                 }
             }
 
             if (found.isEmpty()) {
-                for (short in shortDateCandidates(line, labelled)) {
-                    for (option in orientationCandidates(short.first, short.second)) {
-                        if (isRealDate(fallbackYear, option.month, option.day)) {
-                            found += DateCandidate(
-                                year = fallbackYear,
-                                month = option.month,
-                                day = option.day,
-                                confidence = if (option.swapped) 0.7f else short.confidence,
-                                ambiguous = option.ambiguous,
-                                lineIndex = index
-                            )
-                            break
-                        }
+                for (short in shortDateCandidates(line, labelled, loose)) {
+                    for (option in orientationCandidates(short.first, short.second, short.dashSeparated)) {
+                        if (!isRealDate(fallbackYear, option.month, option.day)) continue
+                        found += DateCandidate(
+                            year = fallbackYear,
+                            month = option.month,
+                            day = option.day,
+                            confidence = (if (option.swapped) 0.62f else short.confidence) +
+                                recencyBonus(
+                                    fallbackYear, option.month, option.day, todayIso, option.ambiguous
+                                ),
+                            ambiguous = option.ambiguous,
+                            lineIndex = index
+                        )
                     }
                 }
             }
@@ -412,25 +498,71 @@ object MeterTextParser {
         return best?.let { MeterDate(it.year, it.month, it.day, it.confidence, it.ambiguous) }
     }
 
-    /** Các cách hiểu (ngày, tháng): vế > 12 bắt buộc là ngày, nếu không thì ưu tiên ngày trước. */
-    private fun orientationCandidates(first: Int, second: Int): List<DayMonth> = when {
+    /**
+     * Các cách hiểu (ngày, tháng): vế > 12 bắt buộc là ngày. Khi cả hai vế đều <= 12
+     * thì thứ tự ưu tiên theo dấu phân cách - gạch chéo "/" là DD/MM (Việt Nam), gạch
+     * ngang "-" là MM/DD (đa số máy đo đặt sẵn kiểu Mỹ) - và đánh dấu ambiguous để
+     * người dùng kiểm lại.
+     */
+    private fun orientationCandidates(
+        first: Int,
+        second: Int,
+        preferMonthFirst: Boolean = false
+    ): List<DayMonth> = when {
         first > 12 && second <= 12 -> listOf(DayMonth(first, second, false, false))
         second > 12 && first <= 12 -> listOf(DayMonth(second, first, false, false))
+        preferMonthFirst -> listOf(
+            DayMonth(second, first, true, false),
+            DayMonth(first, second, true, true)
+        )
         else -> listOf(DayMonth(first, second, true, false), DayMonth(second, first, true, true))
     }
 
+    /**
+     * Hai cách hiểu đều hợp lý và cách nhau không quá [RECENCY_TIE_DAYS] ngày so với
+     * hôm nay: ưu tiên cái sát ngày điện thoại hơn. Đồng hồ máy đo thường lệch vài
+     * phút chứ không lệch vài tháng, nên đây là cách phân biệt MM-DD và DD/MM mà
+     * không cần đoán trường.
+     */
+    private fun recencyBonus(
+        year: Int,
+        month: Int,
+        day: Int,
+        todayIso: String?,
+        ambiguous: Boolean
+    ): Float {
+        if (!ambiguous || todayIso.isNullOrBlank()) return 0f
+        val today = SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(todayIso) ?: return 0f
+        val parsed = Calendar.getInstance().apply {
+            clear()
+            set(year, month - 1, day)
+        }
+        val days = kotlin.math.abs(parsed.timeInMillis - today.time) / MILLIS_PER_DAY
+        return if (days <= RECENCY_TIE_DAYS) RECENCY_BONUS else 0f
+    }
+
     /** Cặp ngày/tháng không có năm; bắt buộc một vế đủ 2 chữ số ("6-1" không thành ngày). */
-    private fun shortDateCandidates(line: String, labelled: Boolean): List<ShortPair> {
+    private fun shortDateCandidates(
+        line: String,
+        labelled: Boolean,
+        loose: Boolean = false
+    ): List<ShortPair> {
         val output = mutableListOf<ShortPair>()
-        for (match in SHORT_DATE.findAll(line)) {
+        val pattern = if (loose) LOOSE_SHORT_DATE else SHORT_DATE
+        for (match in pattern.findAll(line)) {
             val first = match.groupValues[1]
             val second = match.groupValues[3]
             if (first.length < 2 && second.length < 2) continue
             val firstValue = first.toIntOrNull() ?: continue
             val secondValue = second.toIntOrNull() ?: continue
-            output += ShortPair(firstValue, secondValue, if (labelled) 0.9f else 0.6f)
+            output += ShortPair(
+                first = firstValue,
+                second = secondValue,
+                confidence = if (labelled) 0.9f else 0.6f,
+                dashSeparated = match.groupValues[2] == "-"
+            )
         }
-        if (output.isEmpty() && labelled) {
+        if (output.isEmpty() && (labelled || loose)) {
             for (match in SHORT_DOT_DATE.findAll(line)) {
                 val firstValue = match.groupValues[1].toIntOrNull()
                 val secondValue = match.groupValues[2].toIntOrNull()
@@ -502,6 +634,93 @@ object MeterTextParser {
             }
         }
         return null
+    }
+
+    /**
+     * Sửa các ký tự ML Kit hay nhầm lẫn trong dãy số nhỏ của dòng trạng thái (
+     * `O`/`Q`/`D` -> 0, `l`/`I`/`|` -> 1, `Z` -> 2, `S` -> 5, `G` -> 6, `B` -> 8.
+     *
+     * Chỉ áp dụng cho chuỗi số đứng cạnh dấu phân cách giờ/ngày, nên nhãn chữ
+     * ("Date", "AM", "PM") không bị viết lại. Vì vậy hàm chỉ dùng cho tầng ngày/giờ,
+     * tuyệt đối không dùng cho dòng chứa chỉ số: "5.O" sửa thành "5.0" là đổi luôn
+     * đường huyết của người bệnh.
+     */
+    fun repairOcrDigits(text: String): String {
+        fun repair(input: String): String =
+            input.map { c -> DIGIT_MAP[c] ?: c }.joinToString("")
+        return repair(NUMERIC_PAIR.replace(text) { match -> repair(match.value) })
+            .let { NUMERIC_PAIR_DOT.replace(it) { match -> repair(match.value) } }
+    }
+
+    /** "09-2314:35" -> "09-23 14:35" (ML Kit không thấy khoảng trắng giữa 2 trường). */
+    fun splitGluedRow(text: String): String =
+        GLUED_TIME_DATE.replace(
+            GLUED_DATE_TIME.replace(text, "${'$'}1 ${'$'}2"),
+            "${'$'}1 ${'$'}2"
+        )
+
+    /**
+     * Tầng ngày/giờ đọc từ dải quét toàn màn hình (trên cùng -> dưới cùng).
+     *
+     * Ảnh được phóng to mạnh nên chữ nhỏ đọc được, đổi lại nó cũng thấy cả nhãn
+     * và chữ số nền, vì đây chỉ là nguồn bổ sung: [includeGlucose] mặc định tắt để
+     * không bao giờ để dòng mm-dd quyết định chỉ số đường huyết.
+     */
+    fun parseSmallText(
+        rawText: String,
+        lines: List<OcrLine> = emptyList(),
+        includeGlucose: Boolean = false,
+        fallbackYear: Int = Calendar.getInstance().get(Calendar.YEAR),
+        todayIso: String? = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+    ): MeterDisplayFields {
+        val repairedLines = lines.map { line ->
+            OcrLine(splitGluedRow(repairOcrDigits(line.text)), line.heightPx)
+        }
+        val text = repairedLines.joinToString("\n") { it.text }
+            .ifBlank { splitGluedRow(repairOcrDigits(rawText)) }
+        val reading = if (includeGlucose) {
+            extractReadingFromLines(repairedLines) ?: extractReading(text)
+        } else {
+            null
+        }
+        return MeterDisplayFields(
+            glucose = reading,
+            time = extractTime(text, loose = true),
+            date = extractDate(text, fallbackYear, todayIso, loose = true),
+            errorCode = null,
+            rawText = rawText,
+            lines = lines,
+            smallTextScanned = true
+        )
+    }
+
+    /**
+     * Ghép kết quả dải quét chữ nhỏ vào kết quả chính. Kết quả chính luôn thắng khi
+     * hai nguồn trùng trường, trừ khi dải nhỏ tin cậy hơn rõ rệt (no upscale 8x nên
+     * đọc dòng chữ bé chuẩn hơn).
+     */
+    fun merge(base: MeterDisplayFields, extra: MeterDisplayFields): MeterDisplayFields = base.copy(
+        glucose = base.glucose ?: extra.glucose,
+        time = pickStrongerTime(base.time, extra.time),
+        date = pickStrongerDate(base.date, extra.date),
+        errorCode = base.errorCode ?: extra.errorCode,
+        lines = if (base.lines.isEmpty()) extra.lines else base.lines,
+        rawText = base.rawText.ifBlank { extra.rawText },
+        smallTextScanned = base.smallTextScanned || extra.smallTextScanned
+    )
+
+    private fun pickStrongerTime(a: MeterTime?, b: MeterTime?): MeterTime? = when {
+        a == null -> b
+        b == null -> a
+        b.confidence > a.confidence + MERGE_TIE_MARGIN -> b
+        else -> a
+    }
+
+    private fun pickStrongerDate(a: MeterDate?, b: MeterDate?): MeterDate? = when {
+        a == null -> b
+        b == null -> a
+        b.confidence > a.confidence + MERGE_TIE_MARGIN -> b
+        else -> a
     }
 
     /** Chạy cả ba tầng trên một frame và trả về mọi trường đọc được. */

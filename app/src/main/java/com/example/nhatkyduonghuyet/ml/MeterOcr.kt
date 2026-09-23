@@ -65,7 +65,9 @@ data class MeterDisplayFields(
     val date: MeterDate? = null,
     val errorCode: String? = null,
     val rawText: String = "",
-    val lines: List<OcrLine> = emptyList()
+    val lines: List<OcrLine> = emptyList(),
+    /** Da chay them luot quet toan bo chieu cao man hinh de tim dong chu nho. */
+    val smallTextScanned: Boolean = false
 ) {
     val value: Float? get() = glucose?.value
     val hasReading: Boolean get() = glucose != null
