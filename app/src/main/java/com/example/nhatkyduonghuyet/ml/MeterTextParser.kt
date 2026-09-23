@@ -655,8 +655,10 @@ object MeterTextParser {
     fun repairOcrDigits(text: String): String {
         fun repair(input: String): String =
             input.map { c -> DIGIT_MAP[c] ?: c }.joinToString("")
-        return repair(NUMERIC_PAIR.replace(text) { match -> repair(match.value) })
-            .let { NUMERIC_PAIR_DOT.replace(it) { match -> repair(match.value) } }
+        // Chu y: repair() chi duoc phep ap len phan MATCH. Ap len ca chuoi la
+        // "Date: Time" bi doi thanh "0ate: T1me" - loi CI bat duoc.
+        val bySeparator = NUMERIC_PAIR.replace(text) { match -> repair(match.value) }
+        return NUMERIC_PAIR_DOT.replace(bySeparator) { match -> repair(match.value) }
     }
 
     /** "09-2314:35" -> "09-23 14:35" (ML Kit không thấy khoảng trắng giữa 2 trường). */
