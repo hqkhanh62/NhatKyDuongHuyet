@@ -3,7 +3,6 @@ package com.example.nhatkyduonghuyet.ui.dashboard
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.nhatkyduonghuyet.ai.MultiStepResult
-import com.example.nhatkyduonghuyet.ai.Normalizer
 import com.example.nhatkyduonghuyet.ai.PredictionOutcome
 import com.example.nhatkyduonghuyet.ai.PredictionResult
 import com.example.nhatkyduonghuyet.ai.RealtimePredictor
@@ -11,6 +10,8 @@ import com.example.nhatkyduonghuyet.data.local.entity.LogEntry
 import com.example.nhatkyduonghuyet.data.repository.AIRepository
 import com.example.nhatkyduonghuyet.domain.repository.LogRepository
 import com.example.nhatkyduonghuyet.domain.usecase.CloudInsightResult
+import com.example.nhatkyduonghuyet.domain.health.GlucoseMetrics
+import com.example.nhatkyduonghuyet.domain.scanner.AutoImportPipeline
 import com.example.nhatkyduonghuyet.domain.usecase.DetectRiskPattern
 import com.example.nhatkyduonghuyet.domain.usecase.GeminiAnalysisUseCase
 import com.example.nhatkyduonghuyet.ml.ScannedGlucoseResult
@@ -131,81 +132,35 @@ class DashboardViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Điểm vào thứ hai của luồng quét (dialog nhập nhanh, widget…).
+     * Toàn bộ quyết định Auto Clean / ngày giờ / buổi / ô trước-sau ăn dùng
+     * chung [AutoImportPipeline] với màn hình quét toàn màn hình, để hai lối nhập
+     * dữ liệu không bao giờ ghi ra kết quả khác nhau.
+     */
     fun onGlucoseScanned(result: ScannedGlucoseResult) {
         viewModelScope.launch {
             val now = Date()
-            val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-            val hf = SimpleDateFormat("HH:mm", Locale.getDefault())
-            
-            val finalTime = result.time ?: hf.format(now)
-            var finalDate = result.date ?: sdf.format(now)
-            
-            // Validate date format yyyy-MM-dd
-            try {
-                val parts = finalDate.split("-")
-                if (parts.size == 3) {
-                    val year = parts[0].toInt()
-                    val month = parts[1].toInt()
-                    val day = parts[2].toInt()
-                    
-                    if (month > 12 && day <= 12) {
-                        // Swapped month and day (yyyy-dd-MM)
-                        finalDate = "%04d-%02d-%02d".format(year, day, month)
-                    } else if (month > 12) {
-                        // Still invalid month, fallback to today
-                        finalDate = sdf.format(now)
-                    }
-                }
-            } catch (e: Exception) {
-                finalDate = sdf.format(now)
-            }
+            val systemDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(now)
+            val systemTime = SimpleDateFormat("HH:mm", Locale.getDefault()).format(now)
 
-            val hour = finalTime.substringBefore(':').toIntOrNull()
-                ?: Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
-            
-            var session = "Sáng"
-            val scannedVal = result.value.toDouble()
-            
-            when {
-                hour < 10 -> session = "Sáng"
-                hour in 10..15 -> session = "Trưa"
-                hour in 16..19 -> session = "Chiều"
-                else -> session = "Tối"
-            }
+            val cleaned = AutoImportPipeline.clean(result.value, result.fields.errorCode)
+            if (cleaned !is AutoImportPipeline.CleanResult.Accepted) return@launch
 
-            val existingEntries = repo.getLogsByDate(finalDate).first()
-            
-            // Prevention of duplicate identical scans
-            val isDuplicate = existingEntries.any { 
-                it.session == session && 
-                (it.bgBefore == scannedVal || it.bgAfter == scannedVal) &&
-                it.time == finalTime 
-            }
-            if (isDuplicate) return@launch
-
-            val existing = existingEntries.find { it.session == session }
-
-            if (existing != null) {
-                // Update existing record
-                val updated = if (hour % 2 == 0) { // Simple heuristic or just check which one is null
-                     if (existing.bgBefore == null) existing.copy(bgBefore = scannedVal, time = finalTime)
-                     else existing.copy(bgAfter = scannedVal, time = finalTime)
-                } else {
-                     if (existing.bgAfter == null) existing.copy(bgAfter = scannedVal, time = finalTime)
-                     else existing.copy(bgBefore = scannedVal, time = finalTime)
-                }
-                repo.insertLog(updated)
-            } else {
-                // Create new record
-                repo.insertLog(
-                    LogEntry(
-                        date = finalDate,
-                        session = session,
-                        time = finalTime,
-                        bgBefore = scannedVal,
-                        note = "Auto-scanned via AI Camera"
-                    )
-                )
+            val entries = repo.getAllLogs().first()
+            val draft = AutoImportPipeline.draft(
+                value = cleaned.value,
+                fields = result.fields,
+                systemDate = systemDate,
+                systemTime = systemTime,
+                existingForDate = entries,
+                valueSource = result.source,
+                confidence = result.confidence
+            )
+            when (val plan = AutoImportPipeline.plan(draft, entries)) {
+                is AutoImportPipeline.ImportPlan.Duplicate -> Unit
+                is AutoImportPipeline.ImportPlan.Insert -> repo.insertLog(plan.entry)
+                is AutoImportPipeline.ImportPlan.Update -> repo.insertLog(plan.entry)
             }
 
             _geminiInsight.value = GeminiInsightUiState.Idle
@@ -337,16 +292,9 @@ class DashboardViewModel @Inject constructor(
         return current to previous
     }
 
+    /** Trung bình ngày: dùng chung định nghĩa với luồng quét camera (GlucoseMetrics). */
     private fun dailyMeasuredAverages(entries: List<LogEntry>): Map<String, Float> =
-        entries.groupBy { it.date }
-            .toSortedMap()
-            .mapValues { (_, dayEntries) ->
-                dayEntries.flatMap { listOfNotNull(it.bgBefore, it.bgAfter) }
-                    .filter { it.isFinite() && it in Normalizer.MIN_GLUCOSE_MMOL.toDouble()..Normalizer.MAX_GLUCOSE_MMOL.toDouble() }
-                    .average()
-                    .toFloat()
-            }
-            .filterValues { it.isFinite() && it > 0f }
+        GlucoseMetrics.dailyMeasuredAverages(entries)
 
     private fun chartPoints(
         dailyAverages: Map<String, Float>,
@@ -362,19 +310,13 @@ class DashboardViewModel @Inject constructor(
         dailyAverages: Map<String, Float>
     ): Quad<Double, Double, Int, Double> {
         val values = entries.flatMap { listOfNotNull(it.bgBefore, it.bgAfter) }
-            .filter { it.isFinite() && it in Normalizer.MIN_GLUCOSE_MMOL.toDouble()..Normalizer.MAX_GLUCOSE_MMOL.toDouble() }
+            .filter { GlucoseMetrics.isValidMmol(it) }
         val max = values.maxOrNull() ?: 0.0
         val average = values.average().takeIf { it.isFinite() } ?: 0.0
         val highRate = if (values.isEmpty()) 0 else values.count { it > 10.0 } * 100 / values.size
-        val weightedAverage = weightedAverage(dailyAverages.values.toList())
-        val hba1c = if (weightedAverage > 0f) (weightedAverage + 2.59) / 1.59 else 0.0
+        val weightedAverage = GlucoseMetrics.weightedAverage(dailyAverages.values.toList())
+        val hba1c = GlucoseMetrics.estimateHba1c(weightedAverage)
         return Quad(max, average, highRate, hba1c)
-    }
-
-    private fun weightedAverage(values: List<Float>): Float {
-        if (values.isEmpty()) return 0f
-        val weights = values.indices.map { (it + 1).toFloat() }
-        return (values.zip(weights).sumOf { (value, weight) -> (value * weight).toDouble() } / weights.sum()).toFloat()
     }
 
     private fun getComparison(current: Double, previous: Double): ComparisonData? {
@@ -384,15 +326,7 @@ class DashboardViewModel @Inject constructor(
     }
 
     private fun validMeasurementsInChronologicalOrder(entries: List<LogEntry>): List<Float> =
-        entries.asSequence()
-            .filter { it.session != "AI Prediction" }
-            .sortedWith(compareBy<LogEntry> { it.date }.thenBy { it.time ?: "" })
-            .flatMap { entry ->
-                listOfNotNull(entry.bgBefore, entry.bgAfter)
-                    .map { it.toFloat() }
-            }
-            .filter(Normalizer::isValidGlucose)
-            .toList()
+        GlucoseMetrics.chronologicalMeasurements(entries)
 
     private data class DashboardInput(
         val allEntries: List<LogEntry>,

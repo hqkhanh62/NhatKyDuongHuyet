@@ -1,7 +1,5 @@
 package com.example.nhatkyduonghuyet.ui.screens
 
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -10,13 +8,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.FileUpload
+import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -34,19 +31,15 @@ fun MedicationScreen(
     viewModel: MedicationViewModel = hiltViewModel()
 ) {
     val medications by viewModel.medicationList.collectAsState(initial = emptyList())
-    val context = LocalContext.current
+    val snackbarHostState = remember { SnackbarHostState() }
+    val message by viewModel.message.collectAsState()
 
-    val filePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent(),
-        onResult = { uri ->
-            uri?.let {
-                context.contentResolver.openInputStream(it)?.use { stream ->
-                    val content = stream.bufferedReader().readText()
-                    viewModel.importCsv(content)
-                }
-            }
+    LaunchedEffect(message) {
+        message?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.consumeMessage()
         }
-    )
+    }
 
     Scaffold(
         topBar = {
@@ -58,12 +51,22 @@ fun MedicationScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { filePickerLauncher.launch("text/*") }) {
-                        Icon(Icons.Default.FileUpload, contentDescription = stringResource(R.string.import_csv))
+                    // Backup/export now lives on one dedicated screen instead
+                    // of being split across two overflow menus.
+                    IconButton(onClick = {
+                        navController.navigate(
+                            com.example.nhatkyduonghuyet.ui.navigation.GlucoseScreen.Backup.route
+                        )
+                    }) {
+                        Icon(
+                            Icons.Default.Backup,
+                            contentDescription = stringResource(R.string.backup_and_restore)
+                        )
                     }
                 }
             )
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
         Column(
             modifier = Modifier

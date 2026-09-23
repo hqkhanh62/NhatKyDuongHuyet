@@ -2,9 +2,10 @@ name: Build Android APK
 
 on:
   push:
-    branches: [ "master" ]
+    branches: [ "master", "main", "arena/**" ]
   pull_request:
-    branches: [ "master" ]
+    branches: [ "master", "main" ]
+  workflow_dispatch:
 
 jobs:
   build:
@@ -24,7 +25,86 @@ jobs:
         run: chmod +x gradlew
 
       - name: Run unit tests
-        run: ./gradlew testDebugUnitTest
+        shell: bash
+        run: |
+          set -o pipefail
+          # Mirror Kotlin compile errors into GitHub annotations so they are
+          # readable even when raw job logs cannot be downloaded.
+          ./gradlew testDebugUnitTest 2>&1 | tee /tmp/gradle.log || {
+            echo "--- compile errors ---"
+            grep -E "^e: |error:" /tmp/gradle.log | head -40 | while read -r line; do
+              echo "::error::${line}"
+            done
+            # Test failures are only visible in the XML report, and job logs or
+            # artifacts are not always downloadable - so publish them as
+            # check-run annotations, which survive.
+            echo "--- failing unit tests ---"
+            python3 - app/build/test-results/testDebugUnitTest <<'PY'
+          import sys, glob, html, xml.etree.ElementTree as ET
+          found = 0
+          for f in sorted(glob.glob(sys.argv[1] + "/*.xml")):
+              for tc in ET.parse(f).getroot().iter("testcase"):
+                  for bad in list(tc.findall("failure")) + list(tc.findall("error")):
+                      found += 1
+                      msg = " ".join((bad.get("message") or bad.text or "").split())
+                      print("::error::FAIL " + str(tc.get("classname")) + "." +
+                            str(tc.get("name")) + " :: " + html.escape(msg[:400]))
+          if not found:
+              print("::error::Khong co testcase nao trong bao cao - nghi luc bien dich test")
+          PY
+            exit 1
+          }
+
+      - name: Summarize unit test results
+        if: always()
+        shell: bash
+        run: |
+          shopt -s nullglob globstar
+          FILES=(app/build/test-results/testDebugUnitTest/*.xml)
+          if [ "${#FILES[@]}" -eq 0 ]; then
+            echo "::error::Khong tim thay ket qua unit test - co the test da bi bo qua"
+            exit 1
+          fi
+          python3 - "${FILES[@]}" <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import sys, xml.etree.ElementTree as ET
+          tot=fail=err=skip=0
+          rows=[]
+          for f in sys.argv[1:]:
+              r=ET.parse(f).getroot()
+              t=int(r.get('tests',0)); fl=int(r.get('failures',0))
+              e=int(r.get('errors',0)); s=int(r.get('skipped',0))
+              tot+=t; fail+=fl; err+=e; skip+=s
+              rows.append((r.get('name',f), t, fl, e, s))
+          print("## Ket qua unit test\n")
+          print("| Lop test | Tong | Fail | Error | Skip |")
+          print("|---|---:|---:|---:|---:|")
+          for n,t,fl,e,s in sorted(rows):
+              print(f"| {n} | {t} | {fl} | {e} | {s} |")
+          print(f"\n**Tong cong: {tot} test, {fail} fail, {err} error, {skip} skip**")
+          PY
+          # Job logs/artifacts are not always downloadable, so every failing
+          # testcase is also emitted as a check-run annotation (that channel works).
+          python3 - "app/build/test-results/testDebugUnitTest"/*.xml <<'PY'
+          import sys, html, xml.etree.ElementTree as ET
+          for f in sys.argv[1:]:
+              root = ET.parse(f).getroot()
+              for tc in root.iter("testcase"):
+                  for bad in list(tc.findall("failure")) + list(tc.findall("error")):
+                      msg = " ".join((bad.get("message") or (bad.text or "")).split())[:500]
+                      sys.stdout.write(
+                          "::error::TEST FAIL %s.%s :: %s\n"
+                          % (tc.get("classname"), tc.get("name"), html.escape(msg))
+                      )
+          PY
+          cat "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload unit test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-report
+          path: app/build/reports/tests/testDebugUnitTest
+          if-no-files-found: ignore
 
       - name: Build with Gradle
         run: ./gradlew assembleDebug

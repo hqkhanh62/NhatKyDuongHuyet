@@ -25,6 +25,14 @@ class MedicationViewModel @Inject constructor(
     private val repository: MedicationRepository
 ) : ViewModel() {
 
+    private val _message = MutableStateFlow<String?>(null)
+    /** One-shot message for the snackbar; call [consumeMessage] after showing. */
+    val message: StateFlow<String?> = _message.asStateFlow()
+
+    fun consumeMessage() {
+        _message.value = null
+    }
+
     val medicationList: Flow<List<MedicationUiState>> = repository.getAllMedications().flatMapLatest { meds ->
         if (meds.isEmpty()) {
             flowOf(emptyList())
@@ -67,51 +75,20 @@ class MedicationViewModel @Inject constructor(
         viewModelScope.launch {
             // Limit CSV content size to prevent memory issues (MED-04)
             if (csvContent.length > 100_000) {
-                // Too large file
+                _message.value = "File quá lớn (giới hạn 100KB)."
                 return@launch
             }
 
-            val lines = csvContent.lines()
-            if (lines.isEmpty()) return@launch
-            
-            val newMeds = lines.drop(1) // Skip header
-                .filter { it.isNotBlank() }
-                .mapNotNull { line ->
-                    // Safer CSV parsing for simple cases (handles basic commas)
-                    // For production, a real CSV library like OpenCSV is recommended.
-                    val parts = parseCsvLine(line)
-                    if (parts.size >= 4) {
-                        Medication(
-                            name = parts[1].trim(),
-                            dosage = parts[2].trim(),
-                            instruction = parts[3].trim().replace("viên", "v"),
-                            timing = if (parts.size > 4) parts[4].trim().replace("viên", "v") else ""
-                        )
-                    } else null
-                }
-            
+            val newMeds = com.example.nhatkyduonghuyet.util.MedicationCsv
+                .parsePrescriptionCsv(csvContent)
+
             if (newMeds.isNotEmpty()) {
                 repository.replaceMedications(newMeds)
+                _message.value = "Đã nhập ${newMeds.size} thuốc từ file CSV."
+            } else {
+                _message.value = "File không có dòng thuốc hợp lệ."
             }
         }
-    }
-
-    private fun parseCsvLine(line: String): List<String> {
-        val result = mutableListOf<String>()
-        var currentPart = StringBuilder()
-        var inQuotes = false
-        for (char in line) {
-            when {
-                char == '\"' -> inQuotes = !inQuotes
-                char == ',' && !inQuotes -> {
-                    result.add(currentPart.toString())
-                    currentPart = StringBuilder()
-                }
-                else -> currentPart.append(char)
-            }
-        }
-        result.add(currentPart.toString())
-        return result
     }
 
     fun prepopulateData() {

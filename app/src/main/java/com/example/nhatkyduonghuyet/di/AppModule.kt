@@ -3,6 +3,7 @@ package com.example.nhatkyduonghuyet.di
 import android.content.Context
 import androidx.room.Room
 import com.example.nhatkyduonghuyet.data.local.AppDatabase
+import com.example.nhatkyduonghuyet.data.local.DatabaseMigrations
 import com.example.nhatkyduonghuyet.data.local.dao.LogEntryDao
 import com.example.nhatkyduonghuyet.data.local.dao.MedicationDao
 import dagger.Module
@@ -24,7 +25,12 @@ object AppModule {
             AppDatabase::class.java,
             "nhat_ky_duong_huyet_db"
         )
-            .fallbackToDestructiveMigration()
+            // Real migrations instead of fallbackToDestructiveMigration():
+            // the diary and the medication history must survive an app update.
+            .addMigrations(*DatabaseMigrations.ALL)
+            // Only a *downgrade* (installing an older APK over a newer one)
+            // rebuilds the file. Upgrades never drop data.
+            .fallbackToDestructiveMigrationOnDowngrade()
             .build()
     }
 
