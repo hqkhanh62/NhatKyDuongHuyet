@@ -71,4 +71,59 @@ class ScanRoiGeometryTest {
         assertEquals(0f, clamped.left, 1e-4f)
         assertEquals(1f, clamped.right, 1e-4f)
     }
+
+    // ------------------------------ luot quet toan chieu cao man hinh ------------------------------
+
+    /**
+     * Bug mà người dùng báo: "chỉ quét phần trên màn hình". Crop căn giữa vào khung
+     * hướng dẫn luôn bỏ sót dòng trạng thái nằm ở mép trên màn hình máy đo, nên
+     * dải quét bổ sung bắt buộc phải phủ từ 0.02 đến 0.98.
+     */
+    @Test
+    fun `small text sweep covers the whole height of the analysed frame`() {
+        val display = NormalizedRect(0.30f, 0.42f, 0.70f, 0.58f)
+        val sweep = smallTextSweepRoi(display)
+        assertTrue(sweep.top <= 0.03f)
+        assertTrue(sweep.bottom >= 0.97f)
+        assertTrue(sweep.top < display.top)
+        assertTrue(sweep.bottom > display.bottom)
+    }
+
+    @Test
+    fun `small text sweep stays tied to the guide frame horizontally`() {
+        val sweep = smallTextSweepRoi(NormalizedRect(0.2f, 0.4f, 0.8f, 0.6f))
+        assertTrue(sweep.left in 0f..0.2f)
+        assertTrue(sweep.right in 0.8f..1f)
+        assertTrue(sweep.width < 1f)
+    }
+
+    @Test
+    fun `vertical ocr padding is larger than the horizontal one`() {
+        // Cat mat day so "7" thanh "1" ton hai hon nen kinh phai cua man hinh.
+        assertTrue(OCR_ROI_PADDING_Y > OCR_ROI_PADDING_X)
+        val expanded = NormalizedRect(0.3f, 0.45f, 0.7f, 0.55f)
+            .expand(OCR_ROI_PADDING_X, OCR_ROI_PADDING_Y)
+        assertTrue(expanded.height > 0.55f - 0.45f)
+        assertTrue(expanded.top < 0.45f && expanded.bottom > 0.55f)
+    }
+
+    @Test
+    fun `fallback roi reaches the top status row`() {
+        assertTrue(DEFAULT_DISPLAY_ROI.top < 0.15f)
+        assertTrue(DEFAULT_DISPLAY_ROI.bottom > 0.85f)
+    }
+
+    /** Khung qua ngang = nguoi dung phai cat bot dong mm-dd / hh:mm khi canh. */
+    @Test
+    fun `guide frame is tall enough for a display with a status row`() {
+        assertTrue(SCAN_FRAME_ASPECT_RATIO < 1.45f)
+        assertTrue(SCAN_FRAME_ASPECT_RATIO > 1.0f)
+    }
+
+    @Test
+    fun `expand with two paddings clamps into the image`() {
+        val clamped = NormalizedRect(0f, 0f, 0.5f, 0.5f).expand(0.2f, 0.9f)
+        assertTrue(clamped.left >= 0f && clamped.top >= 0f)
+        assertTrue(clamped.right <= 1f && clamped.bottom <= 1f)
+    }
 }

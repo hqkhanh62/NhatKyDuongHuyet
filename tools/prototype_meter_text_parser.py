@@ -134,7 +134,13 @@ LABELLED_TIME = re.compile(r"(?<![\d:.])((?:[01]?\d|2[0-3]))[.:]([0-5]\d)(?::([0
 MERIDIEM_TIME = re.compile(r"(?<!\d)(1[0-2]|[1-9])[:.]([0-5]\d)\s*([AP])\.?\s*\.?M?(?![0-9A-Za-z])", re.IGNORECASE)
 
 
-def extract_time(text: str):
+LOOSE_TIME_STRIP = re.compile(
+    r"(?<![\d:;])([0-9OoQlIi|]{1,2})\s*[:;]\s*([0-5][0-9OoSsZz])(?:\s*[:;]\s*\d{1,2})?(?![\d:])")
+LOOSE_TIME = re.compile(
+    r"(?<![\d:])([0-9OoQlIi|]{1,2})\s*[:;.]\s*([0-5][0-9OoSsZz])(?:\s*[:;.]\s*\d{1,2})?(?![\d:])")
+
+
+def extract_time(text: str, loose: bool = False):
     """Returns (hour, minute, confidence) or None."""
     best = None
     for offset, line in enumerate(normalize_display_text(text).splitlines()):
@@ -153,6 +159,19 @@ def extract_time(text: str):
                 continue
             penalty = 30 if match.group(3) else 0
             best = _better_time(best, (hour, minute, 1.0 if labelled else 0.8, penalty, offset))
+    if loose:
+        for offset, line in enumerate(normalize_display_text(text).splitlines()):
+            line = repair_ocr_digits(line)
+            if not line.strip():
+                continue
+            labelled = bool(TIME_LABEL.search(line))
+            for match in LOOSE_TIME.finditer(line):
+                hour = int(normalize_numeric_token(match.group(1)))
+                minute = int(normalize_numeric_token(match.group(2)))
+                if hour > 23 or minute > 59:
+                    continue
+                best = _better_time(best, (hour, minute, 0.85 if labelled else 0.66,
+                                          10 if labelled else 45, offset))
     if best is None:
         return None
     return (best[0], best[1], best[2])
@@ -171,7 +190,19 @@ ISO_DATE = re.compile(r"(?<!\d)(\d{4})([-/.])(\d{1,2})\2(\d{1,2})(?!\d)")
 FULL_DATE = re.compile(r"(?<!\d)(\d{1,2})([-/.])(\d{1,2})\2(\d{2,4})(?!\d)")
 SHORT_DATE = re.compile(r"(?<!\d)(\d{1,2})([-/])(\d{1,2})(?!\d)")
 SHORT_DOT = re.compile(r"(?<!\d)(\d{2})[.](\d{2})(?!\d)")
+LOOSE_SHORT_DATE = re.compile(r"(?<!\d)(\d{1,2})([-/.])(\d{1,2})(?!\d)")
+GLUED_DATE_TIME = re.compile(r"(\d{1,2}[-/.]\d{1,2})(\d{1,2}[:;]\d{2})")
+GLUED_TIME_DATE = re.compile(r"(\d{1,2}[:;]\d{2})(\d{1,2}[-/.]\d{1,2})")
+NUMERIC_PAIR = re.compile(
+    r"[0-9OoQlIi|]{1,2}\s*[:;\-]\s*[0-9OoSsZzGbBlIi|]{1,2}(?:\s*[:;.\-]\s*[0-9OoSsZz]{1,2})?")
+NUMERIC_PAIR_DOT = re.compile(r"[0-9OoQDlIi]{2}\.\s*[0-9OoSsZzGbB]{2}")
+DIGIT_MAP = {"O": "0", "o": "0", "Q": "0", "q": "0", "D": "0",
+             "l": "1", "I": "1", "i": "1", "|": "1", "!": "1",
+             "Z": "2", "z": "2", "S": "5", "s": "5",
+             "G": "6", "g": "6", "B": "8", "b": "8"}
 MAX_FUTURE_DAYS = 1
+RECENCY_TIE_DAYS = 3
+RECENCY_BONUS = 0.03
 
 
 def _valid(year: int, month: int, day: int) -> bool:
@@ -199,11 +230,68 @@ def _resolve(day_token, month_token, year, allow_swap):
     return None
 
 
-def _strip_times(line: str) -> str:
-    return COLON_TIME.sub(" ", line)
+def repair_ocr_digits(text: str) -> str:
+    """Sửa ký tự OCR nhầm lẫn, chi trong chuoi so canh dau phan cach gio/ngay."""
+    def sub(match):
+        return "".join(DIGIT_MAP.get(c, c) for c in match.group(0))
+    return NUMERIC_PAIR_DOT.sub(sub, NUMERIC_PAIR.sub(sub, text))
 
 
-def extract_date(text: str, fallback_year: int, today_iso: str):
+def split_glued_row(text: str) -> str:
+    """"09-2314:35" -> "09-23 14:35"."""
+    text = GLUED_DATE_TIME.sub(r"\1 \2", text)
+    return GLUED_TIME_DATE.sub(r"\1 \2", text)
+
+
+def _strip_times(line: str, loose: bool = False) -> str:
+    line = COLON_TIME.sub(" ", line)
+    return LOOSE_TIME_STRIP.sub(" ", line) if loose else line
+
+
+def _recency_bonus(year: int, month: int, day: int, today_iso: str, ambiguous: bool) -> float:
+    if not ambiguous or not today_iso:
+        return 0.0
+    try:
+        value = datetime.date(year, month, day)
+        today = datetime.date.fromisoformat(today_iso)
+    except ValueError:
+        return 0.0
+    return RECENCY_BONUS if abs((value - today).days) <= RECENCY_TIE_DAYS else 0.0
+
+
+def parse_small_text(raw_text: str, lines=(), include_glucose: bool = False,
+                     fallback_year: int = 2026, today_iso: str = "2026-09-23"):
+    """Che do doc dong chu nho: sua loi ky tu + tach token dinh, khong lay chi so."""
+    repaired = [(split_glued_row(repair_ocr_digits(text)), height) for text, height in lines]
+    text = "\n".join(t for t, _ in repaired) or split_glued_row(repair_ocr_digits(raw_text))
+    return {
+        "glucose": (extract_glucose_from_lines(repaired) or extract_glucose(text)) if include_glucose else None,
+        "time": extract_time(text, loose=True),
+        "date": extract_date(text, fallback_year, today_iso, loose=True),
+        "smallTextScanned": True,
+    }
+
+
+def merge(base: dict, extra: dict) -> dict:
+    """Nguon chinh thang khi trung truong, trich khi nguon phu tin cay hon ro ret."""
+    margin = 0.05
+
+    def stronger(current, other, conf):
+        if current is None:
+            return other
+        if other is None:
+            return current
+        return other if conf(other) > conf(current) + margin else current
+
+    return {
+        "glucose": base.get("glucose") if base.get("glucose") is not None else extra.get("glucose"),
+        "time": stronger(base.get("time"), extra.get("time"), lambda t: t[2]),
+        "date": stronger(base.get("date"), extra.get("date"), lambda d: d[1]),
+        "smallTextScanned": True,
+    }
+
+
+def extract_date(text: str, fallback_year: int, today_iso: str, loose: bool = False):
     """Returns (isoDate, confidence, ambiguous) or None (Auto Clean aware).
 
     Tier order: YYYY-MM-DD, then D/M/YYYY (day first unless the second number
@@ -212,7 +300,7 @@ def extract_date(text: str, fallback_year: int, today_iso: str):
     """
     best = None
     for offset, raw_line in enumerate(normalize_display_text(text).splitlines()):
-        line = _strip_times(raw_line)
+        line = _strip_times(raw_line, loose)
         labelled = bool(DATE_LABEL.search(line))
         found = []
         for match in ISO_DATE.finditer(line):
@@ -223,17 +311,21 @@ def extract_date(text: str, fallback_year: int, today_iso: str):
                 found.append((year, day, month, 0.7, True))
         for match in FULL_DATE.finditer(line):
             year = _expand_year(match.group(4))
-            for day, month, ambiguous, swapped in _orient(match.group(1), match.group(3)):
-                if _valid(year, month, day):
-                    conf = 0.7 if swapped else (0.9 if labelled else 0.85)
-                    found.append((year, month, day, conf, ambiguous))
-                    break
+            month_first = match.group(2) == "-"
+            for day, month, ambiguous, swapped in _orient(match.group(1), match.group(3), month_first):
+                if not _valid(year, month, day):
+                    continue
+                conf = 0.7 if swapped else (0.9 if labelled else 0.85)
+                conf += _recency_bonus(year, month, day, today_iso, ambiguous)
+                found.append((year, month, day, conf, ambiguous))
         if not found:
-            for first, _sep, third, base_conf in _short_dates(line, labelled):
-                for day, month, ambiguous, swapped in _orient(first, third):
-                    if _valid(fallback_year, month, day):
-                        found.append((fallback_year, month, day, 0.7 if swapped else base_conf, ambiguous))
-                        break
+            for first, sep, third, base_conf in _short_dates(line, labelled, loose):
+                for day, month, ambiguous, swapped in _orient(first, third, sep == "-"):
+                    if not _valid(fallback_year, month, day):
+                        continue
+                    conf = 0.62 if swapped else base_conf
+                    conf += _recency_bonus(fallback_year, month, day, today_iso, ambiguous)
+                    found.append((fallback_year, month, day, conf, ambiguous))
         for year, month, day, conf, ambiguous in found:
             iso = f"{year:04d}-{month:02d}-{day:02d}"
             if _out_of_plausible_window(iso, today_iso):
@@ -246,25 +338,27 @@ def extract_date(text: str, fallback_year: int, today_iso: str):
     return (best[1], best[2], best[3])
 
 
-def _orient(first, third):
-    """Candidate (day, month) orders, day-first: the vi-VN default."""
+def _orient(first, third, prefer_month_first: bool = False):
+    """Candidate (day, month) orders. Slash = DD/MM (vi-VN), dash = MM/DD (meter default)."""
     a, b = int(first), int(third)
     if a > 12 and b <= 12:
         return [(a, b, False, False)]
     if b > 12 and a <= 12:
         return [(b, a, False, False)]
+    if prefer_month_first:
+        return [(b, a, True, False), (a, b, True, True)]
     return [(a, b, True, False), (b, a, True, True)]
 
 
-def _short_dates(line, labelled):
+def _short_dates(line, labelled, loose: bool = False):
     """Year-less pairs; at least one side must be two digits."""
     out = []
-    for match in SHORT_DATE.finditer(line):
+    for match in (LOOSE_SHORT_DATE if loose else SHORT_DATE).finditer(line):
         first, sep, third = match.group(1), match.group(2), match.group(3)
         if len(first) < 2 and len(third) < 2:
             continue
         out.append((first, sep, third, 0.9 if labelled else 0.6))
-    if not out and labelled:
+    if not out and (labelled or loose):
         for match in SHORT_DOT.finditer(line):
             out.append((match.group(1), ".", match.group(2), 0.45))
     return out
@@ -408,6 +502,49 @@ DATE_CASES = [
     (("2026-08-30", 0.45, False), "Date 30.08"),
 ]
 
+SMALL_TEXT_CASES = [
+    # (raw_text, expected_time, expected_date_iso)
+    ("09-23 14:35", (14, 35, 0.8), "2026-09-23"),
+    ("09:231 4:35", (4, 35, 0.8), None),          # khong co ngay thi khong doan
+    ("09-2314:35", (14, 35, 0.8), "2026-09-23"),  # 2 truong dinh lien
+    ("l4:3S", (14, 35, 0.8), None),
+    ("O9-23 l4:35", (14, 35, 0.8), "2026-09-23"),
+    ("DAY 09.23 14:35", (14, 35, 0.8), "2026-09-23"),
+    ("1.2.3", None, None),
+    ("9:5", None, None),
+]
+
+REPAIR_CASES = [
+    ("l4:3S", "14:35"),
+    ("09-23", "09-23"),
+    ("O9-2B", "09-28"),
+    ("Date: Time", "Date: Time"),   # nhan chu giu nguyen
+    ("5.O mmol/L", "5.O mmol/L"),   # chi so thap phan KHONG bi viet lai
+]
+
+GLUCOSE_FROM_SMALL_TEXT = [
+    (None, "09-23 14:35"),
+    (None, "23-09"),
+    (None, "09-23 14:35\n6.2 mmol/L"),
+]
+
+DATE_RULE_CASES = [
+    ("dash with year = MM-DD", lambda: extract_date("09-08-2026 6.2", 2026, "2026-09-15"),
+     ("2026-09-08", 0.85, True)),
+    ("slash with year = DD-MM", lambda: extract_date("08/09/2026 6.2", 2026, "2026-09-15"),
+     ("2026-09-08", 0.85, True)),
+    ("recency tie-break", lambda: extract_date("09/08 6.2 mmol/L", 2026, "2026-09-08"),
+     ("2026-09-08", 0.65, True)),
+    ("mm-dd today", lambda: extract_date("11-05 6.2 mmol/L", 2026, "2026-11-05"),
+     ("2026-11-05", 0.63, True)),
+    ("impossible mm-dd falls back", lambda: extract_date("11-05 6.2 mmol/L", 2026, "2026-09-23"),
+     ("2026-05-11", 0.62, True)),
+    ("status row only", lambda: parse_small_text("09-23 14:35", fallback_year=2026,
+     today_iso="2026-09-23")["date"], ("2026-09-23", 0.6, False)),
+    ("confusable digits repaired", lambda: parse_small_text("l4:3S", fallback_year=2026,
+     today_iso="2026-09-23")["time"], (14, 35, 0.8)),
+]
+
 SESSION_CASES = [
     (5, "Sáng"), (9, "Sáng"), (10, "Sáng"), (11, "Trưa"), (13, "Trưa"),
     (14, "Chiều"), (17, "Chiều"), (18, "Tối"), (23, "Tối"), (0, "Tối"), (4, "Tối"),
@@ -465,7 +602,63 @@ def main() -> int:
     for expected, text in DATE_CASES:
         check(f"date {text!r}", extract_date(text, 2026, "2026-09-15"), expected)
 
-    print("\n== auto session classification ==")
+    print("\n== small text strip: repair + glue split + loose time/date ==")
+    for raw, expected_time, expected_date in SMALL_TEXT_CASES:
+        parsed = parse_small_text(raw, fallback_year=2026, today_iso="2026-09-23")
+        check(f"small time {raw!r}", parsed["time"], expected_time)
+        got_date = parsed["date"][0] if parsed["date"] else None
+        check(f"small date {raw!r}", got_date, expected_date)
+        check(f"small glucose {raw!r}", parsed["glucose"], None)
+
+    print("\n== digit repair scope ==")
+    for src, expected in REPAIR_CASES:
+        check(f"repair {src!r}", repair_ocr_digits(src), expected)
+
+    print("\n== small text never invents a glucose value ==")
+    for expected, text in GLUCOSE_FROM_SMALL_TEXT:
+        check(f"no-value {text!r}", parse_small_text(text, fallback_year=2026,
+              today_iso="2026-09-23")["glucose"], expected)
+
+    print("\n== merge keeps the primary source ==")
+    merged = merge(
+        {"glucose": 6.2, "time": (14, 35, 0.8), "date": ("2026-09-23", 0.9, False)},
+        {"glucose": None, "time": (9, 15, 0.99), "date": ("2026-01-01", 0.5, True)},
+    )
+    check("merge glucose", merged["glucose"], 6.2)
+    check("merge time (stronger wins)", merged["time"], (9, 15, 0.99))
+    check("merge date (primary kept)", merged["date"], ("2026-09-23", 0.9, False))
+    merged2 = merge({"glucose": None, "time": None, "date": None},
+                    {"glucose": 5.7, "time": (7, 5, 0.66), "date": None})
+    check("merge fills missing", (merged2["glucose"], merged2["time"]), (5.7, (7, 5, 0.66)))
+
+    print("\n== dash = MM/DD, slash = DD/MM ==")
+    check("dash with year", extract_date("09-08-2026 6.2", 2026, "2026-09-15"),
+          ("2026-09-08", 0.85, True))
+    check("slash with year", extract_date("08/09/2026 6.2", 2026, "2026-09-15"),
+          ("2026-09-08", 0.85, True))
+    check("dash no year", extract_date("11-05 6.2 mmol/L", 2026, "2026-11-05"),
+          ("2026-11-05", 0.63, True))
+
+    print("\n== value recovery from the full-height sweep ==")
+    check("no value when forbidden",
+          parse_small_text("09-23 14:35\n6.2 mmol/L", fallback_year=2026,
+                           today_iso="2026-09-23")["glucose"], None)
+    check("value recovered from text",
+          parse_small_text("09-23 14:35\n6.2 mmol/L", include_glucose=True,
+                           fallback_year=2026, today_iso="2026-09-23")["glucose"], 6.2)
+    check("value recovered from lines",
+          parse_small_text("x", [("09-23 14:35", 12), ("6.2 mmol/L", 90)],
+                           include_glucose=True, fallback_year=2026,
+                           today_iso="2026-09-23")["glucose"], 6.2)
+    check("status row alone is never a value",
+          parse_small_text("09-23 14:35", include_glucose=True, fallback_year=2026,
+                           today_iso="2026-09-23")["glucose"], None)
+
+    print("\n== date rules: separator + recency ==")
+    for label, fn, expected in DATE_RULE_CASES:
+        check(label, fn(), expected)
+
+    print("\n== value recovery from the full-height sweep ==")
     for hour, expected in SESSION_CASES:
         check(f"hour {hour}", session_for_hour(hour), expected)
 

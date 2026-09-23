@@ -181,4 +181,104 @@ class MeterTextParserTest {
         assertEquals("21:15", fields.time?.formatted)
         assertEquals("2026-08-20", fields.date?.iso)
     }
+
+    // ------------------------------------------- dong chu nho: mm-dd / hh:mm
+
+    @Test
+    fun `repairs digit confusables only next to date and time separators`() {
+        assertEquals("14:35", MeterTextParser.repairOcrDigits("l4:3S"))
+        assertEquals("09-23", MeterTextParser.repairOcrDigits("O9-23"))
+        assertEquals("09-28", MeterTextParser.repairOcrDigits("O9-2B"))
+        // Nhan chu va chi so thap phan tuyet doi khong bi viet lai
+        assertEquals("Date: Time", MeterTextParser.repairOcrDigits("Date: Time"))
+        assertEquals("5.O mmol/L", MeterTextParser.repairOcrDigits("5.O mmol/L"))
+    }
+
+    @Test
+    fun `splits a glued status row into date and time`() {
+        assertEquals("09-23 14:35", MeterTextParser.splitGluedRow("09-2314:35"))
+        assertEquals("14:35 09-23", MeterTextParser.splitGluedRow("14:3509-23"))
+    }
+
+    @Test
+    fun `reads mm-dd and hh-mm from the small status row`() {
+        val fields = MeterTextParser.parseSmallText(
+            rawText = "09-23 14:35",
+            includeGlucose = false,
+            fallbackYear = 2026,
+            todayIso = "2026-09-23"
+        )
+        assertEquals("14:35", fields.time?.formatted)
+        assertEquals("2026-09-23", fields.date?.iso)
+        assertEquals(false, fields.date?.ambiguous)
+        assertNull(fields.glucose)
+        assertEquals(true, fields.smallTextScanned)
+    }
+
+    @Test
+    fun `status row digits never become the glucose value`() {
+        val fields = MeterTextParser.parseSmallText(
+            rawText = "09-23 14:35",
+            includeGlucose = true,
+            fallbackYear = 2026,
+            todayIso = "2026-09-23"
+        )
+        assertNull(fields.glucose)
+    }
+
+    @Test
+    fun `sweep recovers the value the tight crop missed`() {
+        val fields = MeterTextParser.parseSmallText(
+            rawText = "09-23 14:35\n6.2 mmol/L",
+            lines = listOf(OcrLine("09-23 14:35", 12), OcrLine("6.2 mmol/L", 90)),
+            includeGlucose = true,
+            fallbackYear = 2026,
+            todayIso = "2026-09-23"
+        )
+        assertEquals(6.2f, fields.glucose?.value ?: 0f, 0.001f)
+    }
+
+    @Test
+    fun `dash separated date is month first while slash stays day first`() {
+        assertEquals(
+            "2026-09-08",
+            MeterTextParser.extractDate("09-08-2026 6.2", 2026, "2026-09-15")?.iso
+        )
+        assertEquals(
+            "2026-08-22",
+            MeterTextParser.extractDate("08/22/2026 6.2 mmol/L", 2026, "2026-09-15")?.iso
+        )
+    }
+
+    @Test
+    fun `ambiguous orientation falls back when the meter date is impossible`() {
+        assertEquals(
+            "2026-11-05",
+            MeterTextParser.extractDate("11-05 6.2 mmol/L", 2026, "2026-11-05")?.iso
+        )
+        val drifted = MeterTextParser.extractDate("11-05 6.2 mmol/L", 2026, "2026-09-23")
+        assertEquals("2026-05-11", drifted?.iso)
+        assertEquals(true, drifted?.ambiguous)
+    }
+
+    @Test
+    fun `reading closest to the phone date wins a tie`() {
+        val date = MeterTextParser.extractDate("09/08 6.2 mmol/L", 2026, "2026-09-08")
+        assertEquals("2026-09-08", date?.iso)
+        assertEquals(true, date?.ambiguous)
+    }
+
+    @Test
+    fun `merge keeps the primary source and fills only the gaps`() {
+        val base = MeterTextParser.parse("08:30\n6.2 mmol/L")
+        val extra = MeterTextParser.parseSmallText(
+            rawText = "09-23 14:35",
+            fallbackYear = 2026,
+            todayIso = "2026-09-23"
+        )
+        val merged = MeterTextParser.merge(base, extra)
+        assertEquals(6.2f, merged.glucose?.value ?: 0f, 0.001f)
+        assertEquals("08:30", merged.time?.formatted)
+        assertEquals("2026-09-23", merged.date?.iso)
+    }
 }

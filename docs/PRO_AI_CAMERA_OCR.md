@@ -108,6 +108,36 @@ ui/dashboard/DashboardViewModel.kt  onGlucoseScanned đi qua AutoImportPipeline;
 6. Cảnh báo CRITICAL (hạ đường huyết ≤ 3.0, rất cao > 16.7 …) kèm rung SOS và
    nhấp nháy đỏ ngay trên màn hình quét.
 
+## 4b. Bản sửa lỗi: "chỉ quét phần trên màn hình" và dòng mm-dd / hh:mm
+
+**Hiện tượng người dùng báo:** vùng quét chỉ phủ phần trên của màn hình máy đo, không quét từ trên
+xuống dưới, nên chỉ số bị đọc sai; dòng trên cùng (mm-dd góc trái, hh:mm góc phải, chữ nhỏ) hầu như
+không nhận dạng được hoặc nhận dạng sai.
+
+**Bốn nguyên nhân gốc, mỗi cái một lớp:**
+
+| Lớp | Nguyên nhân | Cách sửa |
+|---|---|---|
+| Hình học | Crop phân tích được căn giữa theo khung hướng dẫn rồi chỉ nới 12% đều 4 phía. Dòng trạng thái nằm ở **mép trên** màn hình nên rơi ra ngoài crop. Trùng hơn, `PreviewView` (16:9) và `ImageAnalysis` (YUV, nhiều máy về 4:3) là hai stream khác nhau, nên ROI ánh xạ từ khungPreview **hẹp hơn** cái người dùng nhìn thấy | `OCR_ROI_PADDING_X = 0.10f` / `OCR_ROI_PADDING_Y = 0.34f` (nới dọc mạnh hơn ngang), thêm `smallTextSweepRoi()` phủ từ `0.02` tới `0.98` chiều cao, `DEFAULT_DISPLAY_ROI` mở rộng, `MIN_ROI_FRACTION 0.10 → 0.16` |
+| Tiền xử lý | `upscaleForOcr` chỉ nhìn **chiều ngang** (`width >= 720` → không phóng gì cả). Dòng mm-dd/hh:mm cao ~12 px, dưới nửa ngưỡng ~32 px mà ML Kit cần | `scaleToCover(minWidth, minHeight)` xét cả hai trục; `prepareSmallTextBitmap()` cho riêng dải chữ nhỏ: tương phản 2.1, mục tiêu 1400×220 px, phóng tới **8x** |
+| Khung căn chỉnh | `SCAN_FRAME_ASPECT_RATIO = 1.6` (rộng-ngắn) buộc người dùng phải cắt bớt mép trên/dưới màn hình khi căn khung | Đổi sang **1.34**; dải quét trong overlay nay chạy hết `viewHeight` thay vì quẩn quanh trong khung, phần trên/dưới chỉ bị tối nhẹ (0.20) vì thật ra AI vẫn đọc |
+| Luật đọc | Ngày không năm chỉ hiểu theo kiểu VN; `S`/`Z`/`l`/`O` bị OCR đọc thành chữ nên `14:35` thành `l4:3S`; `09-23` và `14:35` dính liền thành `09-2314:35` | Thêm `parseSmallText()` (chế độ `loose`): `repairOcrDigits()` + `splitGluedRow()` + `LOOSE_TIME`/`LOOSE_SHORT_DATE`; **dấu gạch ngang `-` = MM/DD**, gạch chéo `/` = DD/MM; nếu một cách hiểu rơi khỏi cửa sổ hợp lý thì lấy cách còn lại và đánh dấu `ambiguous` |
+
+**Bất biến quan trọng nhất:** dòng chữ nhỏ **không bao giờ** được quyết định chỉ số.
+`repairOcrDigits()` cố tình loại dấu chấm khỏi bảng sửa (chỉ sửa cặp `XX.YY` đủ 2+2 chữ số) để
+`"5.O"` không bị "sửa" thành `"5.0"` — sửa như thế là đổi luôn đường huyết của người bệnh.
+`parseSmallText(includeGlucose = false)` là mặc định; chỉ bật lên khi crop chính **không** đọc ra số
+nào, và khi đó vẫn đi qua guard `DATE_OR_TIME_ROW` nên `09-23` không bao giờ thành 9.23.
+
+**Chi phí có kiểm soát:** lượt quét thứ hai chỉ chạy khi còn thiếu trường, không quá 1 lần/600 ms,
+và bỏ cuộc sau 6 lần liên tiếp không thấy gì (`MAX_EMPTY_SWEEPS`) — máy đo không in giờ/ngày lên
+màn hình sẽ không bị quét lặp vô ích. Counter này tự reset khi frame mất chỉ số (người dùng đưa máy ra).
+
+**Test khoá hành vi:** `MeterTextParserTest` (9 ca mới: sửa ký tự đúng phạm vi, tách token dính,
+đọc mm-dd + hh:mm, ưu tiên theo dấu phân cách, tie-break theo ngày hôm nay, `merge`),
+`ScanRoiGeometryTest` (6 ca mới: dải quét phủ 0.02→0.98, nới dọc > nới ngang, khung 1.34),
+và `python3 tools/prototype_meter_text_parser.py` → **125 checks ALL PASS**.
+
 ## 5. Chạy kiểm thử
 
 ```bash
