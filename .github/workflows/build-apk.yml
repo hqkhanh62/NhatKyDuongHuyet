@@ -82,6 +82,20 @@ jobs:
               print(f"| {n} | {t} | {fl} | {e} | {s} |")
           print(f"\n**Tong cong: {tot} test, {fail} fail, {err} error, {skip} skip**")
           PY
+          # Job logs/artifacts are not always downloadable, so every failing
+          # testcase is also emitted as a check-run annotation (that channel works).
+          python3 - "app/build/test-results/testDebugUnitTest"/*.xml <<'PY'
+          import sys, html, xml.etree.ElementTree as ET
+          for f in sys.argv[1:]:
+              root = ET.parse(f).getroot()
+              for tc in root.iter("testcase"):
+                  for bad in list(tc.findall("failure")) + list(tc.findall("error")):
+                      msg = " ".join((bad.get("message") or (bad.text or "")).split())[:500]
+                      sys.stdout.write(
+                          "::error::TEST FAIL %s.%s :: %s\n"
+                          % (tc.get("classname"), tc.get("name"), html.escape(msg))
+                      )
+          PY
           cat "$GITHUB_STEP_SUMMARY"
 
       - name: Upload unit test report
