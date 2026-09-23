@@ -201,7 +201,7 @@ class MeterTextParserTest {
     }
 
     @Test
-    fun `reads mm-dd and hh-mm from the small status row`() {
+    fun `reads meter date and time from the small status row`() {
         val fields = MeterTextParser.parseSmallText(
             rawText = "09-23 14:35",
             includeGlucose = false,

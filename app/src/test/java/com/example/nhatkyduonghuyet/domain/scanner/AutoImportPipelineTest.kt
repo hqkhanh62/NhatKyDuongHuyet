@@ -304,7 +304,7 @@ class AutoImportPipelineTest {
         assertEquals(FieldSource.METER, draft.dateSource)
     }
     @Test
-    fun `draft carries the mm-dd ambiguity flag to the review banner`() {
+    fun `draft carries the swapped date warning to the review banner`() {
         val fields = MeterDisplayFields(
             glucose = GlucoseReading(6.2f, 0.9f, fromSpatialLine = true, hasUnit = true, hasDecimal = true),
             time = MeterTime(14, 35),

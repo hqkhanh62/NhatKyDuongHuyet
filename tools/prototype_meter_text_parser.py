@@ -202,7 +202,7 @@ DIGIT_MAP = {"O": "0", "o": "0", "Q": "0", "q": "0", "D": "0",
              "G": "6", "g": "6", "B": "8", "b": "8"}
 MAX_FUTURE_DAYS = 1
 RECENCY_TIE_DAYS = 3
-RECENCY_BONUS = 0.03
+RECENCY_BONUS = 0.10
 
 
 def _valid(year: int, month: int, day: int) -> bool:
@@ -323,7 +323,7 @@ def extract_date(text: str, fallback_year: int, today_iso: str, loose: bool = Fa
                 for day, month, ambiguous, swapped in _orient(first, third, sep == "-"):
                     if not _valid(fallback_year, month, day):
                         continue
-                    conf = 0.62 if swapped else base_conf
+                    conf = 0.55 if swapped else base_conf
                     conf += _recency_bonus(fallback_year, month, day, today_iso, ambiguous)
                     found.append((fallback_year, month, day, conf, ambiguous))
         for year, month, day, conf, ambiguous in found:
@@ -536,9 +536,9 @@ DATE_RULE_CASES = [
     ("recency tie-break", lambda: extract_date("09/08 6.2 mmol/L", 2026, "2026-09-08"),
      ("2026-09-08", 0.65, True)),
     ("mm-dd today", lambda: extract_date("11-05 6.2 mmol/L", 2026, "2026-11-05"),
-     ("2026-11-05", 0.63, True)),
+     ("2026-11-05", 0.70, True)),
     ("impossible mm-dd falls back", lambda: extract_date("11-05 6.2 mmol/L", 2026, "2026-09-23"),
-     ("2026-05-11", 0.62, True)),
+     ("2026-05-11", 0.55, True)),
     ("status row only", lambda: parse_small_text("09-23 14:35", fallback_year=2026,
      today_iso="2026-09-23")["date"], ("2026-09-23", 0.6, False)),
     ("confusable digits repaired", lambda: parse_small_text("l4:3S", fallback_year=2026,
@@ -637,7 +637,7 @@ def main() -> int:
     check("slash with year", extract_date("08/09/2026 6.2", 2026, "2026-09-15"),
           ("2026-09-08", 0.85, True))
     check("dash no year", extract_date("11-05 6.2 mmol/L", 2026, "2026-11-05"),
-          ("2026-11-05", 0.63, True))
+          ("2026-11-05", 0.70, True))
 
     print("\n== value recovery from the full-height sweep ==")
     check("no value when forbidden",

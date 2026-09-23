@@ -105,7 +105,11 @@ object MeterTextParser {
 
     private const val MILLIS_PER_DAY = 86_400_000L
     private const val RECENCY_TIE_DAYS = 3L
-    private const val RECENCY_BONUS = 0.03f
+    /**
+     * Lon hon khoang cach 0.05 giu cach hieu chinh (0.60) va cach hieu phu (0.55),
+     * de "khop ngay hom nay" du suc dao ket luan - nhung chi khi that su khop.
+     */
+    private const val RECENCY_BONUS = 0.10f
 
     /** Nguồn phụ phải tin cậy hơn nguồn chính khoản này mới được thay. */
     private const val MERGE_TIE_MARGIN = 0.05f
@@ -476,7 +480,9 @@ object MeterTextParser {
                             year = fallbackYear,
                             month = option.month,
                             day = option.day,
-                            confidence = (if (option.swapped) 0.62f else short.confidence) +
+                            // 0.55 < 0.60 (muc chua co nhan): cach hieu phu khong
+                            // bao gio duoc thang cach hieu chinh khi ca hai deu hop le.
+                            confidence = (if (option.swapped) 0.55f else short.confidence) +
                                 recencyBonus(
                                     fallbackYear, option.month, option.day, todayIso, option.ambiguous
                                 ),
@@ -519,8 +525,9 @@ object MeterTextParser {
     }
 
     /**
-     * Hai cách hiểu đều hợp lý và cách nhau không quá [RECENCY_TIE_DAYS] ngày so với
-     * hôm nay: ưu tiên cái sát ngày điện thoại hơn. Đồng hồ máy đo thường lệch vài
+     * Hai cách hiểu đều hợp lý: cái rơi đúng vào [RECENCY_TIE_DAYS] ngày quanh hôm nay
+     * được thưởng [RECENCY_BONUS] - đủ lớn để vượt hình phạt đảo chiều 0.05, nên chỉ
+     * sự khớp ngày thật sự mới đảo được kết luận. Đồng hồ máy đo thường lệch vài
      * phút chứ không lệch vài tháng, nên đây là cách phân biệt MM-DD và DD/MM mà
      * không cần đoán trường.
      */
