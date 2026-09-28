@@ -5,15 +5,16 @@ returns a concise, safe summary to the Android app. Contract documented in
 [`docs/gemini-insights-backend.md`](../docs/gemini-insights-backend.md).
 
 - The Gemini API key lives **only on this backend** — never in the app.
-- No auth is enforced here because the current app client does not send
-  credentials. Do not expose this endpoint to the public internet without
-  adding authentication and rate limiting (see Security below).
+- The insight endpoint requires `Authorization: Bearer <GEMINI_BACKEND_TOKEN>`
+  and applies an in-memory per-client rate limit. Use a long random token and
+  keep it out of git.
 
 ## Local development
 
 ```bash
 pip install -r requirements.txt
 export GEMINI_API_KEY=...            # Windows PowerShell: $env:GEMINI_API_KEY="..."
+export GEMINI_BACKEND_TOKEN=...      # must match the Android build setting
 uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
@@ -23,6 +24,7 @@ Smoke test:
 curl -s http://localhost:8000/health
 curl -s -X POST http://localhost:8000/api/gemini/insight ^
   -H "Content-Type: application/json" ^
+  -H "Authorization: Bearer $GEMINI_BACKEND_TOKEN" ^
   -d "{\"history\":\"2026-08-13 08:00: 5.8 mmol/L\",\"language\":\"vi\"}"
 ```
 
@@ -35,7 +37,7 @@ need a stable public URL:
    folder, or a new private repo containing it.
    - Build command: `pip install -r requirements.txt`
    - Start command: `uvicorn main:app --host 0.0.0.0 --port $PORT`
-   - Environment: set `GEMINI_API_KEY` (and optionally `GEMINI_MODEL`).
+   - Environment: set `GEMINI_API_KEY`, `GEMINI_BACKEND_TOKEN` (and optionally `GEMINI_MODEL`).
 2. **Railway / Fly.io** — same app, same two commands/variables.
 3. Or run locally and expose a temporary HTTPS tunnel
    (`cloudflared tunnel --url http://localhost:8000`) — the URL changes on
@@ -48,6 +50,7 @@ In the repo root:
 ```properties
 # local.properties
 GEMINI_BACKEND_URL=https://your-deployed-host.example.com/api/gemini/insight
+GEMINI_BACKEND_TOKEN=the-same-long-random-token
 ```
 
 Then rebuild the debug APK:
@@ -56,14 +59,18 @@ Then rebuild the debug APK:
 gradlew assembleDebug
 ```
 
+The token can also be supplied through the environment as
+`GEMINI_BACKEND_TOKEN`; do not commit it to source control.
+
 The app will call `POST <GEMINI_BACKEND_URL>` and show the returned
 `insight` in the "Phân tích AI" card on the dashboard.
 
 ## Security checklist (required before public release)
 
-- Add authentication (the app client currently sends no token — update
-  `GeminiBackendClient.kt` to attach one, then enforce it here).
-- Rate-limit per user/device and verify the caller before calling Gemini.
+- Keep `GEMINI_BACKEND_TOKEN` secret in deployment and CI/local build config.
+- For multi-user production, replace the shared bootstrap token with per-user
+  authentication and a distributed rate limiter (the current limiter is
+  process-local and intended as a safe baseline).
 - Obtain explicit user consent before transmitting health measurements.
 - Keep HTTPS-only, minimize logs, define retention/deletion rules.
 - Sanitize prompt input and response output; the returned text is

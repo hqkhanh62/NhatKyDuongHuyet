@@ -79,6 +79,25 @@ class DatabaseMigrationsTest {
     }
 
     @Test
+    fun `all non diary tables have complete expected columns`() {
+        val medicationStatements = DatabaseMigrations.missingColumnStatements(
+            "medications",
+            setOf("id", "name"),
+            DatabaseMigrations.MEDICATION_COLUMNS
+        )
+        assertEquals(3, medicationStatements.size)
+        assertTrue(medicationStatements.all { it.contains("DEFAULT") })
+
+        val logStatements = DatabaseMigrations.missingColumnStatements(
+            "medication_logs",
+            setOf("id", "medicationId"),
+            DatabaseMigrations.MEDICATION_LOG_COLUMNS
+        )
+        assertEquals(6, logStatements.size)
+        assertTrue(logStatements.all { it.contains("DEFAULT") })
+    }
+
+    @Test
     fun `non null columns are added with a default so existing rows stay valid`() {
         val legacy = setOf("id", "date")
         val statements = DatabaseMigrations.missingColumnStatements("log_entries", legacy)
