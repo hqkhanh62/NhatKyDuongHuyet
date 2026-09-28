@@ -2,29 +2,29 @@ package com.example.nhatkyduonghuyet.ui.detail
 
 import android.Manifest
 import android.content.pm.PackageManager
-import android.util.Size
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.camera.core.CameraSelector
-import androidx.camera.core.FocusMeteringAction
-import androidx.camera.core.ImageAnalysis
-import androidx.camera.core.Preview
-import androidx.camera.core.SurfaceOrientedMeteringPointFactory
-import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.camera.view.PreviewView
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.Surface
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -34,20 +34,35 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
+import com.example.nhatkyduonghuyet.domain.scanner.AutoImportPipeline
+import com.example.nhatkyduonghuyet.domain.scanner.FieldSource
+import com.example.nhatkyduonghuyet.domain.scanner.GlucoseSession
 import com.example.nhatkyduonghuyet.ml.GlucoseScanner
+import com.example.nhatkyduonghuyet.ml.MeterDisplayFields
 import com.example.nhatkyduonghuyet.ml.ScannedGlucoseResult
-import com.google.mlkit.vision.common.InputImage
-import java.util.ArrayDeque
-import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
+import com.example.nhatkyduonghuyet.ml.StableReadingTracker
+import com.example.nhatkyduonghuyet.ui.scanner.GlucoseCameraPreview
+import com.example.nhatkyduonghuyet.ui.scanner.ScanAlignmentOverlay
+import com.example.nhatkyduonghuyet.ui.scanner.ScanOverlayState
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicLong
 
-@OptIn(androidx.camera.core.ExperimentalGetImage::class)
+/**
+ * Scanning dialog opened from DayDetail.
+ *
+ * Nó dùng lại [GlucoseCameraPreview] (cùng ROI + overlay với màn hình quét toàn
+ * màn hình) và thêm bước kiểm tra: sau khi AI khoá được chỉ số, banner hiện
+ * ngay dưới camera cho người dùng xác nhận *trước khi* số liệu được điền vào ô
+ * đang nhập. Giờ lấy trên màn hình máy đo được ưu tiên, nếu máy không hiển thị
+ * giờ thì dùng giờ điện thoại.
+ */
 @Composable
 fun CameraScannerDialog(
     scanner: GlucoseScanner,
@@ -55,23 +70,21 @@ fun CameraScannerDialog(
     onResult: (ScannedGlucoseResult) -> Unit
 ) {
     val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
-    val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
-    val isProcessing = remember { AtomicBoolean(false) }
     val hasDeliveredResult = remember { AtomicBoolean(false) }
-    val lastAttemptAt = remember { AtomicLong(0L) }
-    // Keep this window scoped to the current dialog. A new scan must not reuse
-    // a value obtained by a previous camera session.
-    val recentValues = remember { ArrayDeque<Float>() }
+    val stableTracker = remember { StableReadingTracker() }
+
     var permissionGranted by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
                 PackageManager.PERMISSION_GRANTED
         )
     }
-    var cameraProvider by remember { mutableStateOf<ProcessCameraProvider?>(null) }
-    var resultDelivered by remember { mutableStateOf(false) }
-    var statusText by remember { mutableStateOf("Đưa màn hình máy đo vào khung xanh…") }
+    var pendingResult by remember { mutableStateOf<ScannedGlucoseResult?>(null) }
+    var liveFields by remember { mutableStateOf<MeterDisplayFields?>(null) }
+    var hits by remember { mutableStateOf(0) }
+    var torchOn by remember { mutableStateOf(false) }
+    var cameraControl by remember { mutableStateOf<androidx.camera.core.CameraControl?>(null) }
+    var statusText by remember { mutableStateOf("Đưa màn hình máy đo vào khung và giữ yên…") }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -85,31 +98,47 @@ fun CameraScannerDialog(
     }
 
     LaunchedEffect(permissionGranted) {
-        if (permissionGranted) {
+        if (permissionGranted && pendingResult == null) {
             kotlinx.coroutines.delay(SCAN_FEEDBACK_TIMEOUT_MS)
-            if (!hasDeliveredResult.get()) {
-                statusText = "Chưa đọc được. Giữ máy đo yên, tránh lóa rồi thử lại."
+            if (pendingResult == null) {
+                statusText = "Chưa đọc được. Giữ máy đo cách 15-20cm, tránh lóa, " +
+                    "hoặc bật đèn flash rồi thử lại."
             }
         }
     }
 
-    DisposableEffect(Unit) {
-        onDispose {
-            cameraProvider?.unbindAll()
-            cameraExecutor.shutdownNow()
-        }
+    val systemTime = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
+    val resolved = pendingResult?.let { result ->
+        val meterTime = result.fields.time?.formatted
+        val time = meterTime ?: systemTime
+        QuickReviewInfo(
+            valueText = AutoImportPipeline.formatMmol(result.value),
+            time = time,
+            timeSource = if (meterTime != null) FieldSource.METER else FieldSource.SYSTEM,
+            sessionLabel = GlucoseSession.fromTime(time)?.label ?: "-",
+            source = result.source,
+            confidence = result.confidence,
+            hasDate = result.date != null,
+            dateText = result.fields.date?.dayMonth
+        )
     }
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+        modifier = Modifier.fillMaxWidth(0.96f),
+        title = { Text("Quét máy đo - AI OCR") },
         confirmButton = {},
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("HỦY") }
+            Row(horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onDismiss) { Text("HỦY") }
+            }
         },
         text = {
             if (!permissionGranted) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(statusText)
+                    Spacer(Modifier.height(12.dp))
                     Button(onClick = {
                         permissionLauncher.launch(Manifest.permission.CAMERA)
                     }) {
@@ -117,144 +146,165 @@ fun CameraScannerDialog(
                     }
                 }
             } else {
-                Box(modifier = Modifier.size(320.dp)) {
-                    AndroidView(
-                        factory = { ctx ->
-                            val previewView = PreviewView(ctx).apply {
-                                scaleType = PreviewView.ScaleType.FILL_CENTER
-                            }
-                            val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
-                            cameraProviderFuture.addListener({
-                                val provider = cameraProviderFuture.get()
-                                cameraProvider = provider
-
-                                val preview = Preview.Builder()
-                                    .setTargetResolution(Size(1280, 720))
-                                    .build()
-                                    .also { it.setSurfaceProvider(previewView.surfaceProvider) }
-
-                                val imageAnalysis = ImageAnalysis.Builder()
-                                    .setTargetResolution(Size(1280, 720))
-                                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                                    .build()
-                                    .also { analysis ->
-                                        analysis.setAnalyzer(cameraExecutor) { imageProxy ->
-                                            val now = System.currentTimeMillis()
-                                            val shouldAnalyze = !hasDeliveredResult.get() &&
-                                                !isProcessing.get() &&
-                                                now - lastAttemptAt.get() >= ANALYSIS_INTERVAL_MS
-
-                                            if (!shouldAnalyze) {
-                                                imageProxy.close()
-                                                return@setAnalyzer
-                                            }
-
-                                            lastAttemptAt.set(now)
-                                            if (!isProcessing.compareAndSet(false, true)) {
-                                                imageProxy.close()
-                                                return@setAnalyzer
-                                            }
-
-                                            val bitmap = try {
-                                                imageProxy.toBitmap()
-                                            } catch (e: Exception) {
-                                                null
-                                            }
-
-                                            if (bitmap == null) {
-                                                isProcessing.set(false)
-                                                imageProxy.close()
-                                                return@setAnalyzer
-                                            }
-
-                                            scanner.processHybrid(
-                                                bitmap,
-                                                imageProxy.imageInfo.rotationDegrees,
-                                                onResult = { result ->
-                                                    isProcessing.set(false)
-                                                    imageProxy.close()
-                                                    if (result != null && !hasDeliveredResult.get()) {
-                                                        val stableValue = synchronized(recentValues) {
-                                                            recentValues.addLast(result.value)
-                                                            while (recentValues.size > STABILITY_WINDOW_SIZE) {
-                                                                recentValues.removeFirst()
-                                                            }
-                                                            findStableValue(recentValues)
-                                                        }
-
-                                                        if (stableValue != null &&
-                                                            hasDeliveredResult.compareAndSet(false, true)) {
-                                                            resultDelivered = true
-                                                            onResult(result.copy(value = stableValue))
-                                                        }
-                                                    }
-                                                },
-                                                onError = {
-                                                    isProcessing.set(false)
-                                                    imageProxy.close()
-                                                }
-                                            )
+                Column {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 360.dp, max = 460.dp)
+                    ) {
+                        val review = pendingResult
+                        GlucoseCameraPreview(
+                            scanner = scanner,
+                            modifier = Modifier.fillMaxWidth().height(420.dp),
+                            enabled = review == null,
+                            torchEnabled = torchOn,
+                            onCameraReady = { cameraControl = it },
+                            onError = { error ->
+                                statusText = "Không thể mở camera: " +
+                                    (error.localizedMessage ?: "lỗi không xác định")
+                            },
+                            onOcrFields = { fields -> liveFields = fields },
+                            overlay = { spec ->
+                                ScanAlignmentOverlay(
+                                    spec = spec,
+                                    state = ScanOverlayState(
+                                        locked = review != null,
+                                        hits = hits,
+                                        required = stableTracker.requiredMatches,
+                                        liveValue = review?.value?.let { AutoImportPipeline.formatMmol(it) },
+                                        meterTime = liveFields?.time?.formatted,
+                                        meterDate = liveFields?.date?.dayMonth,
+                                        hint = if (review == null) statusText else null
+                                    )
+                                )
+                            },
+                            onResult = { result ->
+                                if (hasDeliveredResult.get()) return@GlucoseCameraPreview
+                                // Auto Clean trước khi bỏ phiếu: giá trị ngoài
+                                // ngưỡng 2.0-30.0 hoặc mã lỗi máy đo không được
+                                // xuất hiện ở banner kiểm tra.
+                                val cleaned = AutoImportPipeline.clean(
+                                    raw = result.value,
+                                    meterErrorCode = liveFields?.errorCode
+                                )
+                                when (cleaned) {
+                                    is AutoImportPipeline.CleanResult.Accepted -> {
+                                        val stableValue = stableTracker.offer(cleaned.value)
+                                        if (stableValue != null) {
+                                            hasDeliveredResult.set(true)
+                                            runCatching { cameraControl?.enableTorch(false) }
+                                            pendingResult = result.copy(value = stableValue)
+                                        } else {
+                                            hits += 1
                                         }
                                     }
 
-                                try {
-                                    provider.unbindAll()
-                                    val camera = provider.bindToLifecycle(
-                                        lifecycleOwner,
-                                        CameraSelector.DEFAULT_BACK_CAMERA,
-                                        preview,
-                                        imageAnalysis
-                                    )
-                                    val focusFactory = SurfaceOrientedMeteringPointFactory(1f, 1f)
-                                    val focusPoint = focusFactory.createPoint(0.5f, 0.5f)
-                                    camera.cameraControl.startFocusAndMetering(
-                                        FocusMeteringAction.Builder(focusPoint)
-                                            .setAutoCancelDuration(3, TimeUnit.SECONDS)
-                                            .build()
-                                    )
-                                } catch (error: Exception) {
-                                    statusText = "Không thể mở camera: ${error.localizedMessage ?: "lỗi không xác định"}"
+                                    is AutoImportPipeline.CleanResult.Rejected -> {
+                                        statusText = when (cleaned.reason) {
+                                            AutoImportPipeline.RejectReason.OUT_OF_RANGE ->
+                                                "Ngoài ngưỡng an toàn 2.0-30.0 (${cleaned.detail ?: "-"} mmol/L)"
+                                            AutoImportPipeline.RejectReason.METER_ERROR ->
+                                                "Máy đo đang báo lỗi ${cleaned.detail ?: ""}"
+                                            else -> "Chưa đọc được chỉ số - giữ yên màn hình"
+                                        }
+                                    }
                                 }
-                            }, ContextCompat.getMainExecutor(ctx))
-                            previewView
-                        },
-                        modifier = Modifier.fillMaxSize()
-                    )
+                            }
+                        )
 
-                    Surface(
-                        modifier = Modifier
-                            .size(width = 240.dp, height = 150.dp)
-                            .align(Alignment.Center),
-                        color = Color.Transparent,
-                        border = BorderStroke(2.dp, Color.Green)
-                    ) {}
+                        IconButton(
+                            onClick = { torchOn = !torchOn },
+                            modifier = Modifier.align(Alignment.TopEnd).padding(8.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.FlashOn,
+                                contentDescription = "Bật/tắt đèn",
+                                tint = if (torchOn) Color.Yellow else Color.White
+                            )
+                        }
+                    }
 
-                    Text(
-                        text = statusText,
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(bottom = 8.dp),
-                        color = Color.White
-                    )
+                    Spacer(Modifier.height(8.dp))
+
+                    val info = resolved
+                    if (info != null) {
+                        ScanQuickReviewBanner(
+                            info = info,
+                            onConfirm = {
+                                pendingResult?.let { onResult(it) }
+                            },
+                            onRescan = {
+                                stableTracker.clear()
+                                hasDeliveredResult.set(false)
+                                hits = 0
+                                pendingResult = null
+                                statusText = "Đưa màn hình máy đo vào khung và giữ yên…"
+                            }
+                        )
+                    } else {
+                        Text(statusText, fontSize = 12.sp)
+                    }
                 }
             }
         }
     )
+}
 
-    LaunchedEffect(resultDelivered) {
-        if (resultDelivered) onDismiss()
+private data class QuickReviewInfo(
+    val valueText: String,
+    val time: String,
+    val timeSource: FieldSource,
+    val sessionLabel: String,
+    val source: String,
+    val confidence: Float,
+    val hasDate: Boolean,
+    val dateText: String?
+)
+
+/** Banner xác nhận nhanh trong đối thoại: chỉ số + giờ/ngày AI tự điền. */
+@Composable
+private fun ScanQuickReviewBanner(
+    info: QuickReviewInfo,
+    onConfirm: () -> Unit,
+    onRescan: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Row(verticalAlignment = Alignment.Bottom) {
+            Text(
+                text = info.valueText,
+                fontSize = 30.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Text(" mmol/L", fontSize = 13.sp, color = Color.Gray)
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = info.source + (if (info.confidence >= 0.6f) " • tin cậy cao" else " • nên kiểm tra lại"),
+                fontSize = 11.sp,
+                color = Color.Gray
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("Giờ ${info.time} (${info.timeSource.label})", fontSize = 12.sp)
+            Text("Buổi ${info.sessionLabel}", fontSize = 12.sp)
+            Text(
+                text = if (info.hasDate) "Ngày ${info.dateText} (máy đo)" else "Máy đo không có ngày",
+                fontSize = 12.sp
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = onConfirm, modifier = Modifier.weight(1f)) {
+                Text("ĐIỀN VÀO Ô", fontWeight = FontWeight.Bold)
+            }
+            OutlinedButton(onClick = onRescan) {
+                Text("QUÉT LẠI", color = MaterialTheme.colorScheme.primary)
+            }
+        }
     }
 }
 
-private const val ANALYSIS_INTERVAL_MS = 250L
 private const val SCAN_FEEDBACK_TIMEOUT_MS = 8_000L
-private const val STABILITY_WINDOW_SIZE = 4
-private const val STABILITY_REQUIRED_MATCHES = 3
-private const val STABILITY_TOLERANCE = 0.15f
-
-private fun findStableValue(values: ArrayDeque<Float>): Float? {
-    if (values.size < STABILITY_REQUIRED_MATCHES) return null
-    val latest = values.peekLast()
-    val matches = values.count { kotlin.math.abs(it - latest) <= STABILITY_TOLERANCE }
-    return if (matches >= STABILITY_REQUIRED_MATCHES) latest else null
-}
