@@ -1,10 +1,10 @@
 # Gemini insights backend contract
 
-The Android app never contains a Gemini API key. It sends a user-approved request to the HTTPS endpoint configured as `GEMINI_BACKEND_URL` (or Gradle property `geminiBackendUrl`).
+The Android app never contains a Gemini API key. It sends a user-approved request to the HTTPS endpoint configured as `GEMINI_BACKEND_URL` (or Gradle property `geminiBackendUrl`) with `Authorization: Bearer <GEMINI_BACKEND_TOKEN>`.
 
 ## Request
 
-`POST <GEMINI_BACKEND_URL>` with `Content-Type: application/json`:
+`POST <GEMINI_BACKEND_URL>` with `Content-Type: application/json` and an authenticated bearer token:
 
 ```json
 {

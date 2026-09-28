@@ -41,6 +41,21 @@ object DatabaseMigrations {
         "heartRate" to "INTEGER",
         "note" to "TEXT"
     )
+    val MEDICATION_COLUMNS: Map<String, String> = linkedMapOf(
+        "name" to "TEXT NOT NULL DEFAULT ''",
+        "dosage" to "TEXT NOT NULL DEFAULT ''",
+        "instruction" to "TEXT NOT NULL DEFAULT ''",
+        "timing" to "TEXT NOT NULL DEFAULT ''"
+    )
+    val MEDICATION_LOG_COLUMNS: Map<String, String> = linkedMapOf(
+        "medicationId" to "INTEGER NOT NULL DEFAULT 0",
+        "medicationNameSnapshot" to "TEXT NOT NULL DEFAULT ''",
+        "dosageSnapshot" to "TEXT NOT NULL DEFAULT ''",
+        "timestamp" to "INTEGER NOT NULL DEFAULT 0",
+        "date" to "TEXT NOT NULL DEFAULT ''",
+        "session" to "TEXT NOT NULL DEFAULT ''",
+        "amountTaken" to "REAL NOT NULL DEFAULT 1.0"
+    )
 
     private const val CREATE_LOG_ENTRIES = "CREATE TABLE IF NOT EXISTS `log_entries` (" +
         "`id` INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT, " +
@@ -111,8 +126,14 @@ object DatabaseMigrations {
      */
     private fun upgradeToLatest(db: SupportSQLiteDatabase) {
         createStatements().forEach(db::execSQL)
-        missingColumnStatements("log_entries", existingColumns(db, "log_entries"))
-            .forEach(db::execSQL)
+        listOf(
+            "log_entries" to LOG_ENTRY_COLUMNS,
+            "medications" to MEDICATION_COLUMNS,
+            "medication_logs" to MEDICATION_LOG_COLUMNS
+        ).forEach { (table, expected) ->
+            missingColumnStatements(table, existingColumns(db, table), expected)
+                .forEach(db::execSQL)
+        }
     }
 
     private fun existingColumns(db: SupportSQLiteDatabase, table: String): Set<String> {

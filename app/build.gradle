@@ -11,6 +11,7 @@ kapt {
     useBuildCache = true
     arguments {
         arg("room.incremental", "true")
+        arg("room.schemaLocation", "$projectDir/schemas")
     }
 }
 
@@ -22,7 +23,13 @@ if (localPropertiesFile.exists()) {
 
 // These are configuration values, not provider credentials. The Gemini secret stays on the backend.
 def geminiBackendUrl = localProperties.getProperty("GEMINI_BACKEND_URL") ?: System.getenv("GEMINI_BACKEND_URL") ?: ""
+def geminiBackendToken = localProperties.getProperty("GEMINI_BACKEND_TOKEN") ?: System.getenv("GEMINI_BACKEND_TOKEN") ?: ""
 def escapedGeminiBackendUrl = geminiBackendUrl
+        .replace("\\", "\\\\")
+        .replace("\"", "\\\"")
+        .replace("\r", "")
+        .replace("\n", "")
+def escapedGeminiBackendToken = geminiBackendToken
         .replace("\\", "\\\\")
         .replace("\"", "\\\"")
         .replace("\r", "")
@@ -59,6 +66,7 @@ android {
         versionName buildVersionName
 
         buildConfigField "String", "GEMINI_BACKEND_URL", "\"${escapedGeminiBackendUrl}\""
+        buildConfigField "String", "GEMINI_BACKEND_TOKEN", "\"${escapedGeminiBackendToken}\""
     }
 
     buildTypes {

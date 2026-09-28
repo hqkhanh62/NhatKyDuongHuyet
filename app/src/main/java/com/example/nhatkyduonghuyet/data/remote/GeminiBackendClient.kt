@@ -1,5 +1,5 @@
 package com.example.nhatkyduonghuyet.data.remote
-
+import com.example.nhatkyduonghuyet.BuildConfig
 import com.example.nhatkyduonghuyet.ai.MultiStepResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -26,7 +26,8 @@ class GeminiBackendClient @Inject constructor() {
         forecastData: MultiStepResult?,
         language: String
     ): GeminiBackendResult = withContext(Dispatchers.IO) {
-        if (endpoint.isBlank() || !endpoint.startsWith("https://")) {
+        val token = BuildConfig.GEMINI_BACKEND_TOKEN.trim()
+        if (endpoint.isBlank() || !endpoint.startsWith("https://") || token.isBlank()) {
             return@withContext GeminiBackendResult.Failure("BACKEND_NOT_CONFIGURED")
         }
 
@@ -38,6 +39,7 @@ class GeminiBackendClient @Inject constructor() {
             useCaches = false
             setRequestProperty("Accept", "application/json")
             setRequestProperty("Content-Type", "application/json; charset=utf-8")
+            setRequestProperty("Authorization", "Bearer $token")
         }
 
         try {

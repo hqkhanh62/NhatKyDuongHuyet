@@ -289,10 +289,16 @@ class BackupRepository @Inject constructor(
                 // Ids from the backup are stale after a wipe; re-resolve by name.
                 val byName = medicationDao.getAllMedicationsOnce().associateBy { it.name }
                 incoming.medicationLogs.forEach { log ->
-                    val resolvedId = byName[log.medicationNameSnapshot]?.id ?: log.medicationId
+                    // Never fall back to the exported numeric id: it may now
+                    // belong to a different medication after reinstall/merge.
+                    val resolvedId = byName[log.medicationNameSnapshot]?.id
+                    if (resolvedId == null) {
+                        skipped++
+                        return@forEach
+                    }
                     runCatching {
                         // The unique index on (medicationId, date, session)
-                        // makes this a no-op for rows already present.
+                        // makes repeated restores idempotent.
                         medicationDao.upsertLog(log.copy(id = 0L, medicationId = resolvedId))
                     }.onSuccess { medLogsAdded++ }.onFailure { skipped++ }
                 }
