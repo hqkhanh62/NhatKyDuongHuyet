@@ -145,9 +145,10 @@ fun BoxScope.ScanAlignmentOverlay(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(2.dp)
-                    // y = 0 la mép trên của khung; bien tren/duoi la dem giua khung hinh
-                    // va khung, nen dai quat di het (viewHeight - frameHeight) / 2 ve moi phia.
-                    .offset(y = ((spec.viewHeight - spec.frameHeight) / 2f) * (2f * fraction - 1f))
+                    // Box này đã có đúng kích thước khung. Vì vậy biên quét phải là
+                    // nửa chiều cao của khung; dùng khoảng trống ngoài khung ở đây
+                    // khiến khung cao chỉ quét từ mép trên đến khoảng giữa màn hình.
+                    .offset(y = scanLineOffset(spec.frameHeight, fraction))
                     .background(
                         brush = Brush.horizontalGradient(
                             listOf(Color.Transparent, GUIDE_GREEN.copy(alpha = 0.95f), Color.Transparent)
@@ -186,6 +187,12 @@ fun BoxScope.ScanAlignmentOverlay(
             )
         }
     }
+}
+
+/** Độ lệch của thanh quét trong một Box có chiều cao bằng [frameHeight]. */
+internal fun scanLineOffset(frameHeight: Dp, fraction: Float): Dp {
+    val clampedFraction = fraction.coerceIn(0f, 1f)
+    return (frameHeight / 2f) * (2f * clampedFraction - 1f)
 }
 
 @Composable

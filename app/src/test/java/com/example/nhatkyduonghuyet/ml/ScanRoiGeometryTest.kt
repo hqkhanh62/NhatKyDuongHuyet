@@ -3,6 +3,8 @@ package com.example.nhatkyduonghuyet.ml
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import androidx.compose.ui.unit.dp
+import com.example.nhatkyduonghuyet.ui.scanner.scanLineOffset
 
 class ScanRoiGeometryTest {
 
@@ -118,6 +120,21 @@ class ScanRoiGeometryTest {
     fun `guide frame is tall enough for a display with a status row`() {
         assertTrue(SCAN_FRAME_ASPECT_RATIO < 1.45f)
         assertTrue(SCAN_FRAME_ASPECT_RATIO > 1.0f)
+    }
+
+    @Test
+    fun `scan line travels from top to bottom of guide frame`() {
+        val frameHeight = 400.dp
+        assertEquals(-200.dp, scanLineOffset(frameHeight, 0f))
+        assertEquals(0.dp, scanLineOffset(frameHeight, 0.5f))
+        assertEquals(200.dp, scanLineOffset(frameHeight, 1f))
+    }
+
+    @Test
+    fun `scan line fraction is clamped to guide frame`() {
+        val frameHeight = 400.dp
+        assertEquals(-200.dp, scanLineOffset(frameHeight, -1f))
+        assertEquals(200.dp, scanLineOffset(frameHeight, 2f))
     }
 
     @Test
