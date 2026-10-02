@@ -704,12 +704,16 @@ object MeterTextParser {
     }
 
     /**
-     * Ghép kết quả dải quét chữ nhỏ vào kết quả chính. Kết quả chính luôn thắng khi
-     * hai nguồn trùng trường, trừ khi dải nhỏ tin cậy hơn rõ rệt (no upscale 8x nên
-     * đọc dòng chữ bé chuẩn hơn).
+     * Ghép kết quả dải quét chữ nhỏ vào kết quả chính.
+     *
+     * Crop chính không còn mặc định thắng glucose: nếu nó chỉ có một token yếu
+     * (ví dụ chữ số ngày bị đọc thành 9.3), còn sweep có một dòng spatial kèm
+     * đơn vị/thập phân hoặc confidence cao hơn, sweep được phép thay thế. Ngược
+     * lại, một glucose chính đã có bằng chứng tương đương vẫn được giữ để tránh
+     * nhiễu từ nền khi sweep phủ gần toàn bộ ảnh.
      */
     fun merge(base: MeterDisplayFields, extra: MeterDisplayFields): MeterDisplayFields = base.copy(
-        glucose = base.glucose ?: extra.glucose,
+        glucose = pickStrongerGlucose(base.glucose, extra.glucose, extra.smallTextScanned),
         time = pickStrongerTime(base.time, extra.time),
         date = pickStrongerDate(base.date, extra.date),
         errorCode = base.errorCode ?: extra.errorCode,
@@ -717,6 +721,23 @@ object MeterTextParser {
         rawText = base.rawText.ifBlank { extra.rawText },
         smallTextScanned = base.smallTextScanned || extra.smallTextScanned
     )
+
+    private fun pickStrongerGlucose(
+        primary: GlucoseReading?,
+        sweep: GlucoseReading?,
+        isSweep: Boolean
+    ): GlucoseReading? {
+        if (primary == null) return sweep
+        if (sweep == null || !isSweep) return primary
+
+        val sweepHasStrongerEvidence = sweep.fromSpatialLine && (
+            (!primary.fromSpatialLine) ||
+                (!primary.hasUnit && sweep.hasUnit) ||
+                (!primary.hasDecimal && sweep.hasDecimal) ||
+                (sweep.confidence > primary.confidence + MERGE_TIE_MARGIN)
+            )
+        return if (sweepHasStrongerEvidence) sweep else primary
+    }
 
     private fun pickStrongerTime(a: MeterTime?, b: MeterTime?): MeterTime? = when {
         a == null -> b

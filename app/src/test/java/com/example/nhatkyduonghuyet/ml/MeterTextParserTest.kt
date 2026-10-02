@@ -281,4 +281,47 @@ class MeterTextParserTest {
         assertEquals("08:30", merged.time?.formatted)
         assertEquals("2026-09-23", merged.date?.iso)
     }
+
+    @Test
+    fun `merge lets a stronger full screen sweep replace a weak primary glucose`() {
+        // Crop chính chỉ thấy một token thập phân yếu; sweep thấy dòng lớn kèm
+        // đơn vị và thông tin kích thước từ layout ML Kit.
+        val base = MeterTextParser.parse("09-23\n9.3")
+        val extra = MeterTextParser.parseSmallText(
+            rawText = "09-23 14:35\n6.2 mmol/L",
+            lines = listOf(
+                OcrLine("09-23 14:35", 12),
+                OcrLine("6.2 mmol/L", 90)
+            ),
+            includeGlucose = true,
+            fallbackYear = 2026,
+            todayIso = "2026-09-23"
+        )
+
+        val merged = MeterTextParser.merge(base, extra)
+
+        assertEquals(6.2f, merged.glucose?.value ?: 0f, 0.001f)
+    }
+
+    @Test
+    fun `merge keeps a strong primary glucose over a weaker sweep`() {
+        val base = MeterTextParser.parse(
+            rawText = "6.2 mmol/L",
+            lines = listOf(OcrLine("6.2 mmol/L", 100))
+        )
+        val extra = MeterTextParser.parseSmallText(
+            rawText = "09-23 14:35\n6.8",
+            lines = listOf(
+                OcrLine("09-23 14:35", 12),
+                OcrLine("6.8", 20)
+            ),
+            includeGlucose = true,
+            fallbackYear = 2026,
+            todayIso = "2026-09-23"
+        )
+
+        val merged = MeterTextParser.merge(base, extra)
+
+        assertEquals(6.2f, merged.glucose?.value ?: 0f, 0.001f)
+    }
 }

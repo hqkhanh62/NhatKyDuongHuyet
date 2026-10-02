@@ -152,9 +152,11 @@ class GlucoseScanner @Inject constructor() {
                 val extra = MeterTextParser.parseSmallText(
                     rawText = sweepText.text,
                     lines = toLines(sweepText),
-                    // Chi so duoc phep lay tu dai nay khi crop chinh khong doc ra so,
-                    // de man hinh bi che mot phan van lay duoc chi so.
-                    includeGlucose = base.glucose == null
+                    // Cho sweep đọc lại cả chỉ số. MeterTextParser.merge() chỉ cho
+                    // giá trị này thay thế crop chính khi bằng chứng không gian/
+                    // confidence mạnh hơn; nhờ vậy sweep sửa được một OCR sai,
+                    // nhưng không biến dòng ngày/giờ thành glucose.
+                    includeGlucose = true
                 )
                 val merged = MeterTextParser.merge(base, extra)
                 emptySweeps.set(
