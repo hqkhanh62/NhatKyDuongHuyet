@@ -68,10 +68,7 @@ class GlucoseScanner @Inject constructor() {
     ) {
         recognizer.process(image)
             .addOnSuccessListener { visionText ->
-                // Khi có layout thì chỉ tin vào cây layout: gộp toàn bộ văn bản
-                // thành một chuỗi sẽ trộn lẫn số lớn ở giữa màn hình với chữ số
-                // nhỏ của nhãn DAY/AVG/ngày/giờ (5.7 có thể thành số khác).
-                onResult(resultOf(fieldsFrom(visionText, allowTextFallback = false)))
+                onResult(initialOcrResult(visionText.text))
             }
             .addOnFailureListener { error ->
                 onError(error)
@@ -94,39 +91,40 @@ class GlucoseScanner @Inject constructor() {
         onOcrFields: (MeterDisplayFields) -> Unit = {}
     ) {
         val rotated = ImageUtils.rotateBitmap(fullBitmap, rotationDegrees)
-        val safeRoi = roi.sanitized()
-        // 1. Pixel reader đọc đúng vùng màn hình người dùng căn khung: ở đây càng
-        //    sát càng tốt vì bộ giải mã bảy thanh tính tỉ lệ thanh theo chiều cao crop.
-        val pixelRoi = ImageUtils.enhanceForOcr(ImageUtils.cropNormalized(rotated, safeRoi))
-        val pixelResult = pixelReader.processDisplay(pixelRoi)
-
-        // 2. ML Kit đọc vùng đã nới, chủ yếu theo chiều dọc, để đơn vị mmol/L và
-        //    các nhãn quanh số lớn nằm gọn trong khung phân tích.
-        val displayRoi = safeRoi.expand(OCR_ROI_PADDING_X, OCR_ROI_PADDING_Y)
-        val ocrBitmap = ImageUtils.prepareOcrBitmap(rotated, displayRoi)
-        recognizer.process(InputImage.fromBitmap(ocrBitmap, 0))
+        // Khôi phục đường đi của bản OCR camera đầu tiên (commit 583e8da):
+        // ML Kit đọc toàn bộ frame camera, sau đó lấy số dạng X.X/XX.X trong
+        // khoảng sinh lý 2.0..30.0 mmol/L. Các UI/pipeline phía sau vẫn dùng
+        // ScannedGlucoseResult nên auto-import, Room và dự báo không thay đổi.
+        recognizer.process(InputImage.fromBitmap(rotated, 0))
             .addOnSuccessListener { visionText ->
-                val fields = fieldsFrom(visionText, allowTextFallback = true)
-                if (shouldRunSweep(fields)) {
-                    runSmallTextSweep(rotated, displayRoi, fields, pixelResult, onOcrFields, onResult)
-                } else {
-                    finishFrame(fields, pixelResult, onOcrFields, onResult)
-                }
+                onOcrFields(MeterDisplayFields())
+                onResult(initialOcrResult(visionText.text))
             }
             .addOnFailureListener { error ->
-                // ML Kit hỏng thì vẫn còn kết quả đọc điểm ảnh.
-                if (pixelResult != null && pixelResult.confidence >= PIXEL_AUTHORITATIVE_CONFIDENCE) {
-                    onResult(
-                        ScannedGlucoseResult(
-                            value = pixelResult.value,
-                            source = "PIXEL",
-                            confidence = pixelResult.confidence
-                        )
-                    )
-                } else {
-                    onError(error)
-                }
+                onError(error)
             }
+    }
+
+    /**
+     * OCR camera nguyên bản của commit 583e8da.
+     *
+     * Không đọc pixel/seven-segment, không sweep, không suy luận ngày/giờ:
+     * chỉ lấy token thập phân mà ML Kit trả về từ frame camera.
+     */
+    private fun initialOcrResult(rawText: String): ScannedGlucoseResult? {
+        val value = initialExtractGlucose(rawText) ?: return null
+        return ScannedGlucoseResult(
+            value = value,
+            source = "ML_KIT",
+            confidence = INITIAL_OCR_CONFIDENCE
+        )
+    }
+
+    private fun initialExtractGlucose(text: String): Float? {
+        val normalizedText = text.replace(',', '.')
+        val match = INITIAL_GLUCOSE_REGEX.find(normalizedText) ?: return null
+        val value = match.value.toFloatOrNull() ?: return null
+        return value.takeIf { it in INITIAL_MIN_GLUCOSE..INITIAL_MAX_GLUCOSE }
     }
 
     /**
@@ -275,6 +273,9 @@ class GlucoseScanner @Inject constructor() {
     /** Visible to JVM tests without exposing parsing internals to production callers. */
     internal fun extractGlucoseForTesting(text: String): Float? = MeterTextParser.extractGlucose(text)
 
+    /** Regression hook cho đường OCR camera nguyên bản từ commit 583e8da. */
+    internal fun extractInitialGlucoseForTesting(text: String): Float? = initialExtractGlucose(text)
+
     /** Visible to JVM tests: hybrid combination decision for a frame. */
     internal fun combineHybridForTesting(
         pixel: PixelDisplayReading?,
@@ -293,3 +294,9 @@ private const val SWEEP_MIN_INTERVAL_MS = 600L
 
 /** Số lượt quét toàn màn hình liên tiếp trống ngày/giờ trước khi bỏ cuộc. */
 private const val MAX_EMPTY_SWEEPS = 6
+
+/** Quy tắc OCR camera nguyên bản từ commit 583e8da. */
+private val INITIAL_GLUCOSE_REGEX = Regex("\\b(\\d{1,2}\\.\\d)\\b")
+private const val INITIAL_MIN_GLUCOSE = 2.0f
+private const val INITIAL_MAX_GLUCOSE = 30.0f
+private const val INITIAL_OCR_CONFIDENCE = 0.5f
