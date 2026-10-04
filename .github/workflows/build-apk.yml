@@ -2,7 +2,7 @@ name: Build Android APK
 
 on:
   push:
-    branches: [ "master", "main", "arena/**" ]
+    branches: [ "master", "main", "arena/**", "fix/camera-ocr-full-height" ]
   pull_request:
     branches: [ "master", "main" ]
   workflow_dispatch:
