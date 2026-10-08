@@ -36,6 +36,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -50,6 +51,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -84,23 +87,55 @@ fun DashboardScreenPro(
 
     if (showWidgetSettings) {
         val hideDataValue = remember { mutableStateOf(com.example.nhatkyduonghuyet.domain.PrivacyPolicy.shouldHideWidgetData(context)) }
+        var intervalText by remember {
+            mutableStateOf(
+                com.example.nhatkyduonghuyet.reminder.GlucoseMeasurementSchedule
+                    .intervalDays(context).toString()
+            )
+        }
         AlertDialog(
             onDismissRequest = { showWidgetSettings = false },
             title = { Text("Cài đặt Widget") },
             text = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Ẩn chỉ số nhạy cảm trên Widget", modifier = Modifier.weight(1f))
-                    Switch(
-                        checked = hideDataValue.value,
-                        onCheckedChange = { 
-                            hideDataValue.value = it
-                            com.example.nhatkyduonghuyet.domain.PrivacyPolicy.setHideWidgetData(context, it)
-                            com.example.nhatkyduonghuyet.widget.WidgetUpdater.updateAllWidgets(context)
-                        }
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Ẩn chỉ số nhạy cảm trên Widget", modifier = Modifier.weight(1f))
+                        Switch(
+                            checked = hideDataValue.value,
+                            onCheckedChange = {
+                                hideDataValue.value = it
+                                com.example.nhatkyduonghuyet.domain.PrivacyPolicy.setHideWidgetData(context, it)
+                                com.example.nhatkyduonghuyet.widget.WidgetUpdater.updateAllWidgets(context)
+                            }
+                        )
+                    }
+                    OutlinedTextField(
+                        value = intervalText,
+                        onValueChange = { value ->
+                            if (value.length <= 2 && value.all(Char::isDigit)) intervalText = value
+                        },
+                        label = { Text("Chu kỳ đo (ngày)") },
+                        supportingText = { Text("Nhập từ 1 đến 30 ngày; mặc định 4 ngày") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                     )
                 }
             },
-            confirmButton = { TextButton(onClick = { showWidgetSettings = false }) { Text("Xong") } }
+            confirmButton = {
+                TextButton(onClick = {
+                    val days = intervalText.toIntOrNull()
+                        ?.coerceIn(
+                            com.example.nhatkyduonghuyet.reminder.GlucoseMeasurementSchedule.MIN_INTERVAL_DAYS,
+                            com.example.nhatkyduonghuyet.reminder.GlucoseMeasurementSchedule.MAX_INTERVAL_DAYS
+                        )
+                    if (days != null) {
+                        com.example.nhatkyduonghuyet.reminder.GlucoseMeasurementSchedule.setIntervalDays(context, days)
+                        com.example.nhatkyduonghuyet.reminder.ReminderScheduler.scheduleEveryFourDaysReminder(context)
+                        com.example.nhatkyduonghuyet.widget.WidgetUpdater.updateAllWidgets(context)
+                        showWidgetSettings = false
+                    }
+                }) { Text("Lưu") }
+            }
         )
     }
 
