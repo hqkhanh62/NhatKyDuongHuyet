@@ -91,17 +91,66 @@ class GlucoseScanner @Inject constructor() {
         onOcrFields: (MeterDisplayFields) -> Unit = {}
     ) {
         val rotated = ImageUtils.rotateBitmap(fullBitmap, rotationDegrees)
-        // Khôi phục đường đi của bản OCR camera đầu tiên (commit 583e8da):
-        // ML Kit đọc toàn bộ frame camera, sau đó lấy số dạng X.X/XX.X trong
-        // khoảng sinh lý 2.0..30.0 mmol/L. Các UI/pipeline phía sau vẫn dùng
-        // ScannedGlucoseResult nên auto-import, Room và dự báo không thay đổi.
-        recognizer.process(InputImage.fromBitmap(rotated, 0))
+
+        // 1. Cắt, tăng tương phản và nâng kích thước vùng khung căn chỉnh
+        val ocrBitmap = ImageUtils.prepareOcrBitmap(rotated, roi)
+
+        // 2. Bộ giải mã 7-segment đọc trực tiếp từng thanh LCD
+        val pixelResult = pixelReader.processDisplay(ocrBitmap)
+
+        // 3. ML Kit nhận dạng văn bản trên vùng crop
+        recognizer.process(InputImage.fromBitmap(ocrBitmap, 0))
             .addOnSuccessListener { visionText ->
-                onOcrFields(MeterDisplayFields())
-                onResult(initialOcrResult(visionText.text))
+                var fields = fieldsFrom(visionText, allowTextFallback = true)
+
+                // Dự phòng quét toàn bộ khung hình nếu vùng crop bị lệch/chưa đủ số
+                if (fields.glucose == null && pixelResult == null) {
+                    recognizer.process(InputImage.fromBitmap(rotated, 0))
+                        .addOnSuccessListener { fullVisionText ->
+                            val fullFields = fieldsFrom(fullVisionText, allowTextFallback = true)
+                            val initialVal = initialExtractGlucose(fullVisionText.text)
+                            val fallbackGlucose = fullFields.glucose ?: initialVal?.let {
+                                GlucoseReading(
+                                    value = it,
+                                    confidence = INITIAL_OCR_CONFIDENCE,
+                                    fromSpatialLine = false,
+                                    hasUnit = false,
+                                    hasDecimal = true
+                                )
+                            }
+                            fields = fullFields.copy(glucose = fallbackGlucose)
+
+                            if (shouldRunSweep(fields)) {
+                                runSmallTextSweep(rotated, roi, fields, pixelResult, onOcrFields, onResult)
+                            } else {
+                                finishFrame(fields, pixelResult, onOcrFields, onResult)
+                            }
+                        }
+                        .addOnFailureListener {
+                            if (shouldRunSweep(fields)) {
+                                runSmallTextSweep(rotated, roi, fields, pixelResult, onOcrFields, onResult)
+                            } else {
+                                finishFrame(fields, pixelResult, onOcrFields, onResult)
+                            }
+                        }
+                } else {
+                    if (shouldRunSweep(fields)) {
+                        runSmallTextSweep(rotated, roi, fields, pixelResult, onOcrFields, onResult)
+                    } else {
+                        finishFrame(fields, pixelResult, onOcrFields, onResult)
+                    }
+                }
             }
-            .addOnFailureListener { error ->
-                onError(error)
+            .addOnFailureListener {
+                // Dự phòng quét full frame nếu ML Kit crop báo lỗi
+                recognizer.process(InputImage.fromBitmap(rotated, 0))
+                    .addOnSuccessListener { fullVisionText ->
+                        val fields = fieldsFrom(fullVisionText, allowTextFallback = true)
+                        finishFrame(fields, pixelResult, onOcrFields, onResult)
+                    }
+                    .addOnFailureListener { error ->
+                        onError(error)
+                    }
             }
     }
 

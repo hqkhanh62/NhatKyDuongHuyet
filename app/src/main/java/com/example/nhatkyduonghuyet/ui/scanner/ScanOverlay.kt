@@ -143,11 +143,9 @@ fun BoxScope.ScanAlignmentOverlay(
             )
             Box(
                 modifier = Modifier
+                    .align(Alignment.Center)
                     .fillMaxWidth()
                     .height(2.dp)
-                    // Box này đã có đúng kích thước khung. Vì vậy biên quét phải là
-                    // nửa chiều cao của khung; dùng khoảng trống ngoài khung ở đây
-                    // khiến khung cao chỉ quét từ mép trên đến khoảng giữa màn hình.
                     .offset(y = scanLineOffset(spec.frameHeight, fraction))
                     .background(
                         brush = Brush.horizontalGradient(
