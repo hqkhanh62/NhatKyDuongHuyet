@@ -90,68 +90,92 @@ class GlucoseScanner @Inject constructor() {
         onError: (Exception) -> Unit,
         onOcrFields: (MeterDisplayFields) -> Unit = {}
     ) {
-        val rotated = ImageUtils.rotateBitmap(fullBitmap, rotationDegrees)
+        try {
+            val rotated = ImageUtils.rotateBitmap(fullBitmap, rotationDegrees)
 
-        // 1. Cắt, tăng tương phản và nâng kích thước vùng khung căn chỉnh
-        val ocrBitmap = ImageUtils.prepareOcrBitmap(rotated, roi)
+            // 1. Cắt, tăng tương phản và nâng kích thước vùng khung căn chỉnh
+            val ocrBitmap = ImageUtils.prepareOcrBitmap(rotated, roi)
 
-        // 2. Bộ giải mã 7-segment đọc trực tiếp từng thanh LCD
-        val pixelResult = pixelReader.processDisplay(ocrBitmap)
+            // 2. Bộ giải mã 7-segment đọc trực tiếp từng thanh LCD
+            val pixelResult = try {
+                pixelReader.processDisplay(ocrBitmap)
+            } catch (e: Exception) {
+                null
+            }
 
-        // 3. ML Kit nhận dạng văn bản trên vùng crop
-        recognizer.process(InputImage.fromBitmap(ocrBitmap, 0))
-            .addOnSuccessListener { visionText ->
-                var fields = fieldsFrom(visionText, allowTextFallback = true)
+            // 3. ML Kit nhận dạng văn bản trên vùng crop
+            recognizer.process(InputImage.fromBitmap(ocrBitmap, 0))
+                .addOnSuccessListener { visionText ->
+                    try {
+                        var fields = fieldsFrom(visionText, allowTextFallback = true)
 
-                // Dự phòng quét toàn bộ khung hình nếu vùng crop bị lệch/chưa đủ số
-                if (fields.glucose == null && pixelResult == null) {
-                    recognizer.process(InputImage.fromBitmap(rotated, 0))
-                        .addOnSuccessListener { fullVisionText ->
-                            val fullFields = fieldsFrom(fullVisionText, allowTextFallback = true)
-                            val initialVal = initialExtractGlucose(fullVisionText.text)
-                            val fallbackGlucose = fullFields.glucose ?: initialVal?.let {
-                                GlucoseReading(
-                                    value = it,
-                                    confidence = INITIAL_OCR_CONFIDENCE,
-                                    fromSpatialLine = false,
-                                    hasUnit = false,
-                                    hasDecimal = true
-                                )
-                            }
-                            fields = fullFields.copy(glucose = fallbackGlucose)
+                        // Dự phòng quét toàn bộ khung hình nếu vùng crop chưa đọc ra chỉ số
+                        if (fields.glucose == null && pixelResult == null) {
+                            recognizer.process(InputImage.fromBitmap(rotated, 0))
+                                .addOnSuccessListener { fullVisionText ->
+                                    try {
+                                        val fullFields = fieldsFrom(fullVisionText, allowTextFallback = true)
+                                        val initialVal = initialExtractGlucose(fullVisionText.text)
+                                        val fallbackGlucose = fullFields.glucose ?: initialVal?.let {
+                                            GlucoseReading(
+                                                value = it,
+                                                confidence = INITIAL_OCR_CONFIDENCE,
+                                                fromSpatialLine = false,
+                                                hasUnit = false,
+                                                hasDecimal = true
+                                            )
+                                        }
+                                        fields = fullFields.copy(glucose = fallbackGlucose)
 
+                                        if (shouldRunSweep(fields)) {
+                                            runSmallTextSweep(rotated, roi, fields, pixelResult, onOcrFields, onResult)
+                                        } else {
+                                            finishFrame(fields, pixelResult, onOcrFields, onResult)
+                                        }
+                                    } catch (e: Exception) {
+                                        finishFrame(fields, pixelResult, onOcrFields, onResult)
+                                    }
+                                }
+                                .addOnFailureListener {
+                                    if (shouldRunSweep(fields)) {
+                                        runSmallTextSweep(rotated, roi, fields, pixelResult, onOcrFields, onResult)
+                                    } else {
+                                        finishFrame(fields, pixelResult, onOcrFields, onResult)
+                                    }
+                                }
+                        } else {
                             if (shouldRunSweep(fields)) {
                                 runSmallTextSweep(rotated, roi, fields, pixelResult, onOcrFields, onResult)
                             } else {
                                 finishFrame(fields, pixelResult, onOcrFields, onResult)
                             }
                         }
-                        .addOnFailureListener {
-                            if (shouldRunSweep(fields)) {
-                                runSmallTextSweep(rotated, roi, fields, pixelResult, onOcrFields, onResult)
-                            } else {
-                                finishFrame(fields, pixelResult, onOcrFields, onResult)
-                            }
-                        }
-                } else {
-                    if (shouldRunSweep(fields)) {
-                        runSmallTextSweep(rotated, roi, fields, pixelResult, onOcrFields, onResult)
-                    } else {
-                        finishFrame(fields, pixelResult, onOcrFields, onResult)
+                    } catch (e: Exception) {
+                        finishFrame(MeterDisplayFields(), pixelResult, onOcrFields, onResult)
                     }
                 }
-            }
-            .addOnFailureListener {
-                // Dự phòng quét full frame nếu ML Kit crop báo lỗi
-                recognizer.process(InputImage.fromBitmap(rotated, 0))
-                    .addOnSuccessListener { fullVisionText ->
-                        val fields = fieldsFrom(fullVisionText, allowTextFallback = true)
-                        finishFrame(fields, pixelResult, onOcrFields, onResult)
+                .addOnFailureListener {
+                    // Dự phòng quét full frame nếu ML Kit crop báo lỗi
+                    try {
+                        recognizer.process(InputImage.fromBitmap(rotated, 0))
+                            .addOnSuccessListener { fullVisionText ->
+                                try {
+                                    val fields = fieldsFrom(fullVisionText, allowTextFallback = true)
+                                    finishFrame(fields, pixelResult, onOcrFields, onResult)
+                                } catch (e: Exception) {
+                                    finishFrame(MeterDisplayFields(), pixelResult, onOcrFields, onResult)
+                                }
+                            }
+                            .addOnFailureListener { error ->
+                                onError(error)
+                            }
+                    } catch (e: Exception) {
+                        onError(e)
                     }
-                    .addOnFailureListener { error ->
-                        onError(error)
-                    }
-            }
+                }
+        } catch (e: Exception) {
+            onError(e)
+        }
     }
 
     /**
@@ -192,33 +216,36 @@ class GlucoseScanner @Inject constructor() {
         onOcrFields: (MeterDisplayFields) -> Unit,
         onResult: (ScannedGlucoseResult?) -> Unit
     ) {
-        val sweepRoi = smallTextSweepRoi(displayRoi)
-        val sweepBitmap = ImageUtils.prepareSmallTextBitmap(rotated, sweepRoi)
-        recognizer.process(InputImage.fromBitmap(sweepBitmap, 0))
-            .addOnSuccessListener { sweepText ->
-                val extra = MeterTextParser.parseSmallText(
-                    rawText = sweepText.text,
-                    lines = toLines(sweepText),
-                    // Cho sweep đọc lại cả chỉ số. MeterTextParser.merge() chỉ cho
-                    // giá trị này thay thế crop chính khi bằng chứng không gian/
-                    // confidence mạnh hơn; nhờ vậy sweep sửa được một OCR sai,
-                    // nhưng không biến dòng ngày/giờ thành glucose.
-                    includeGlucose = true
-                )
-                val merged = MeterTextParser.merge(base, extra)
-                emptySweeps.set(
-                    if (merged.time == null && merged.date == null) {
-                        emptySweeps.get() + 1
-                    } else {
-                        0
+        try {
+            val sweepRoi = smallTextSweepRoi(displayRoi)
+            val sweepBitmap = ImageUtils.prepareSmallTextBitmap(rotated, sweepRoi)
+            recognizer.process(InputImage.fromBitmap(sweepBitmap, 0))
+                .addOnSuccessListener { sweepText ->
+                    try {
+                        val extra = MeterTextParser.parseSmallText(
+                            rawText = sweepText.text,
+                            lines = toLines(sweepText),
+                            includeGlucose = true
+                        )
+                        val merged = MeterTextParser.merge(base, extra)
+                        emptySweeps.set(
+                            if (merged.time == null && merged.date == null) {
+                                emptySweeps.get() + 1
+                            } else {
+                                0
+                            }
+                        )
+                        finishFrame(merged, pixelResult, onOcrFields, onResult)
+                    } catch (e: Exception) {
+                        finishFrame(base, pixelResult, onOcrFields, onResult)
                     }
-                )
-                finishFrame(merged, pixelResult, onOcrFields, onResult)
-            }
-            .addOnFailureListener {
-                // Quet bo sung hong thi khong duoc lam mat ket qua chinh.
-                finishFrame(base, pixelResult, onOcrFields, onResult)
-            }
+                }
+                .addOnFailureListener {
+                    finishFrame(base, pixelResult, onOcrFields, onResult)
+                }
+        } catch (e: Exception) {
+            finishFrame(base, pixelResult, onOcrFields, onResult)
+        }
     }
 
     private fun finishFrame(
