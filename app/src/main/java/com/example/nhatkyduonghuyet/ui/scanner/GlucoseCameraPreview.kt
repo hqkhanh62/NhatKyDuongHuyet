@@ -126,8 +126,7 @@ fun GlucoseCameraPreview(
                         .also { it.setSurfaceProvider(previewView.surfaceProvider) }
 
                     val imageAnalysis = ImageAnalysis.Builder()
-                        // Higher analysis resolution: digit strokes survive the crop.
-                        .setTargetResolution(Size(1920, 1080))
+                        .setTargetResolution(Size(1280, 720))
                         .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                         .build()
                         .also { analysis ->
@@ -190,11 +189,13 @@ fun GlucoseCameraPreview(
                                     roi,
                                     onResult = { result ->
                                         isProcessing.set(false)
+                                        runCatching { if (!bitmap.isRecycled) bitmap.recycle() }
                                         imageProxy.close()
                                         if (result != null && !stopped.get()) onResult(result)
                                     },
                                     onError = {
                                         isProcessing.set(false)
+                                        runCatching { if (!bitmap.isRecycled) bitmap.recycle() }
                                         imageProxy.close()
                                     },
                                     onOcrFields = { fields ->

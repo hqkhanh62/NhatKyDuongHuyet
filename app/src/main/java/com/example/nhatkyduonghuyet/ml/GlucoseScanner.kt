@@ -90,28 +90,32 @@ class GlucoseScanner @Inject constructor() {
         onError: (Exception) -> Unit,
         onOcrFields: (MeterDisplayFields) -> Unit = {}
     ) {
+        var rotated: Bitmap? = null
+        var ocrBitmap: Bitmap? = null
         try {
-            val rotated = ImageUtils.rotateBitmap(fullBitmap, rotationDegrees)
+            val rotatedBmp = ImageUtils.rotateBitmap(fullBitmap, rotationDegrees)
+            rotated = rotatedBmp
 
             // 1. Cắt, tăng tương phản và nâng kích thước vùng khung căn chỉnh
-            val ocrBitmap = ImageUtils.prepareOcrBitmap(rotated, roi)
+            val croppedOcr = ImageUtils.prepareOcrBitmap(rotatedBmp, roi)
+            ocrBitmap = croppedOcr
 
             // 2. Bộ giải mã 7-segment đọc trực tiếp từng thanh LCD
             val pixelResult = try {
-                pixelReader.processDisplay(ocrBitmap)
+                pixelReader.processDisplay(croppedOcr)
             } catch (e: Exception) {
                 null
             }
 
             // 3. ML Kit nhận dạng văn bản trên vùng crop
-            recognizer.process(InputImage.fromBitmap(ocrBitmap, 0))
+            recognizer.process(InputImage.fromBitmap(croppedOcr, 0))
                 .addOnSuccessListener { visionText ->
                     try {
                         var fields = fieldsFrom(visionText, allowTextFallback = true)
 
                         // Dự phòng quét toàn bộ khung hình nếu vùng crop chưa đọc ra chỉ số
                         if (fields.glucose == null && pixelResult == null) {
-                            recognizer.process(InputImage.fromBitmap(rotated, 0))
+                            recognizer.process(InputImage.fromBitmap(rotatedBmp, 0))
                                 .addOnSuccessListener { fullVisionText ->
                                     try {
                                         val fullFields = fieldsFrom(fullVisionText, allowTextFallback = true)
@@ -128,54 +132,84 @@ class GlucoseScanner @Inject constructor() {
                                         fields = fullFields.copy(glucose = fallbackGlucose)
 
                                         if (shouldRunSweep(fields)) {
-                                            runSmallTextSweep(rotated, roi, fields, pixelResult, onOcrFields, onResult)
+                                            runSmallTextSweep(rotatedBmp, roi, fields, pixelResult, onOcrFields) { res ->
+                                                cleanupBitmaps(rotatedBmp, fullBitmap, croppedOcr)
+                                                onResult(res)
+                                            }
                                         } else {
+                                            cleanupBitmaps(rotatedBmp, fullBitmap, croppedOcr)
                                             finishFrame(fields, pixelResult, onOcrFields, onResult)
                                         }
                                     } catch (e: Exception) {
+                                        cleanupBitmaps(rotatedBmp, fullBitmap, croppedOcr)
                                         finishFrame(fields, pixelResult, onOcrFields, onResult)
                                     }
                                 }
                                 .addOnFailureListener {
                                     if (shouldRunSweep(fields)) {
-                                        runSmallTextSweep(rotated, roi, fields, pixelResult, onOcrFields, onResult)
+                                        runSmallTextSweep(rotatedBmp, roi, fields, pixelResult, onOcrFields) { res ->
+                                            cleanupBitmaps(rotatedBmp, fullBitmap, croppedOcr)
+                                            onResult(res)
+                                        }
                                     } else {
+                                        cleanupBitmaps(rotatedBmp, fullBitmap, croppedOcr)
                                         finishFrame(fields, pixelResult, onOcrFields, onResult)
                                     }
                                 }
                         } else {
                             if (shouldRunSweep(fields)) {
-                                runSmallTextSweep(rotated, roi, fields, pixelResult, onOcrFields, onResult)
+                                runSmallTextSweep(rotatedBmp, roi, fields, pixelResult, onOcrFields) { res ->
+                                    cleanupBitmaps(rotatedBmp, fullBitmap, croppedOcr)
+                                    onResult(res)
+                                }
                             } else {
+                                cleanupBitmaps(rotatedBmp, fullBitmap, croppedOcr)
                                 finishFrame(fields, pixelResult, onOcrFields, onResult)
                             }
                         }
                     } catch (e: Exception) {
+                        cleanupBitmaps(rotatedBmp, fullBitmap, croppedOcr)
                         finishFrame(MeterDisplayFields(), pixelResult, onOcrFields, onResult)
                     }
                 }
                 .addOnFailureListener {
                     // Dự phòng quét full frame nếu ML Kit crop báo lỗi
                     try {
-                        recognizer.process(InputImage.fromBitmap(rotated, 0))
+                        recognizer.process(InputImage.fromBitmap(rotatedBmp, 0))
                             .addOnSuccessListener { fullVisionText ->
                                 try {
                                     val fields = fieldsFrom(fullVisionText, allowTextFallback = true)
+                                    cleanupBitmaps(rotatedBmp, fullBitmap, croppedOcr)
                                     finishFrame(fields, pixelResult, onOcrFields, onResult)
                                 } catch (e: Exception) {
+                                    cleanupBitmaps(rotatedBmp, fullBitmap, croppedOcr)
                                     finishFrame(MeterDisplayFields(), pixelResult, onOcrFields, onResult)
                                 }
                             }
                             .addOnFailureListener { error ->
+                                cleanupBitmaps(rotatedBmp, fullBitmap, croppedOcr)
                                 onError(error)
                             }
                     } catch (e: Exception) {
+                        cleanupBitmaps(rotatedBmp, fullBitmap, croppedOcr)
                         onError(e)
                     }
                 }
         } catch (e: Exception) {
+            cleanupBitmaps(rotated, fullBitmap, ocrBitmap)
             onError(e)
         }
+    }
+
+    private fun cleanupBitmaps(rotated: Bitmap?, fullBitmap: Bitmap, ocrBitmap: Bitmap?) {
+        try {
+            if (ocrBitmap != null && !ocrBitmap.isRecycled) {
+                ocrBitmap.recycle()
+            }
+            if (rotated != null && rotated != fullBitmap && !rotated.isRecycled) {
+                rotated.recycle()
+            }
+        } catch (_: Exception) {}
     }
 
     /**
