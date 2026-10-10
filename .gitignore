@@ -41,3 +41,4 @@ __pycache__/
 dashboard_show.txt
 nâng cấp.txt
 local.properties.backup
+*.py
