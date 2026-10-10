@@ -11,6 +11,8 @@ import androidx.work.WorkManager
 import com.example.nhatkyduonghuyet.MainActivity
 import com.example.nhatkyduonghuyet.R
 import com.example.nhatkyduonghuyet.domain.PrivacyPolicy
+import com.example.nhatkyduonghuyet.reminder.GlucoseMeasurementSchedule
+import com.example.nhatkyduonghuyet.reminder.ReminderScheduler
 import dagger.hilt.android.AndroidEntryPoint
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -32,6 +34,8 @@ class GlucoseWidgetProvider : AppWidgetProvider() {
 
     override fun onEnabled(context: Context) {
         super.onEnabled(context)
+        GlucoseMeasurementSchedule.ensureStarted(context)
+        ReminderScheduler.scheduleEveryFourDaysReminder(context)
         WidgetUpdater.requestUpdate(context)
     }
 
@@ -66,6 +70,7 @@ class GlucoseWidgetProvider : AppWidgetProvider() {
                 views.setTextViewText(R.id.widget_date, "Đang tải...")
                 views.setTextViewText(R.id.widget_avg, "--")
                 views.setTextViewText(R.id.widget_count, "")
+                views.setTextViewText(R.id.widget_reminder, GlucoseMeasurementSchedule.widgetText(context))
                 WidgetUpdater.requestUpdate(context)
             } else {
                 val displayDate = try {
@@ -93,6 +98,7 @@ class GlucoseWidgetProvider : AppWidgetProvider() {
                     else -> "Chưa có số đo"
                 }
                 views.setTextViewText(R.id.widget_count, countText)
+                views.setTextViewText(R.id.widget_reminder, GlucoseMeasurementSchedule.widgetText(context))
 
                 // Stale state indicator
                 val isStale = (System.currentTimeMillis() - snapshot.capturedAt) > 3_600_000 // 1 hour

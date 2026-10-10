@@ -103,8 +103,18 @@ object ImageUtils {
     }
 
     /** Crop + enhance + upscale pipeline shared by every scanner entry point. */
-    fun prepareOcrBitmap(rotated: Bitmap, roi: NormalizedRect): Bitmap =
-        upscaleForOcr(enhanceForOcr(cropNormalized(rotated, roi)))
+    fun prepareOcrBitmap(rotated: Bitmap, roi: NormalizedRect): Bitmap {
+        val cropped = cropNormalized(rotated, roi)
+        val enhanced = enhanceForOcr(cropped)
+        if (enhanced != cropped && !cropped.isRecycled) {
+            cropped.recycle()
+        }
+        val upscaled = upscaleForOcr(enhanced)
+        if (upscaled != enhanced && !enhanced.isRecycled) {
+            enhanced.recycle()
+        }
+        return upscaled
+    }
 
     /**
      * Prepares the full-height sweep image that is searched for the small status
@@ -115,12 +125,19 @@ object ImageUtils {
     fun prepareSmallTextBitmap(rotated: Bitmap, roi: NormalizedRect): Bitmap {
         val cropped = cropNormalized(rotated, roi)
         val enhanced = enhanceForOcr(cropped, contrast = SMALL_TEXT_CONTRAST)
-        return scaleToCover(
+        if (enhanced != cropped && !cropped.isRecycled) {
+            cropped.recycle()
+        }
+        val upscaled = scaleToCover(
             source = enhanced,
             minWidth = SMALL_TEXT_MIN_WIDTH,
             minHeight = SMALL_TEXT_MIN_HEIGHT,
             maxScale = SMALL_TEXT_MAX_UPSCALE
         )
+        if (upscaled != enhanced && !enhanced.isRecycled) {
+            enhanced.recycle()
+        }
+        return upscaled
     }
 
     private const val SMALL_TEXT_CONTRAST = 2.1f

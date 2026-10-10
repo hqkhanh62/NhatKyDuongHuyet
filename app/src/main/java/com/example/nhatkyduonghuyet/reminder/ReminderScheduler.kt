@@ -51,6 +51,28 @@ object ReminderScheduler {
         )
     }
 
+    fun scheduleEveryFourDaysReminder(context: Context) {
+        GlucoseMeasurementSchedule.ensureStarted(context)
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val intent = Intent(context, ReminderBroadcastReceiver::class.java).apply {
+            action = ACTION_TRIGGER_REMINDER
+            putExtra("SESSION_KEY", GlucoseMeasurementSchedule.SESSION_KEY)
+            putExtra("SESSION_LABEL", GlucoseMeasurementSchedule.SESSION_LABEL)
+            putExtra("REMINDER_TIME", String.format("%02d:%02d", GlucoseMeasurementSchedule.REMINDER_HOUR, GlucoseMeasurementSchedule.REMINDER_MINUTE))
+        }
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            GlucoseMeasurementSchedule.SESSION_KEY.hashCode(),
+            intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        alarmManager.setExactAndAllowWhileIdle(
+            AlarmManager.RTC_WAKEUP,
+            GlucoseMeasurementSchedule.dateTimeForNextDue(context).time,
+            pendingIntent
+        )
+    }
+
     fun cancelReminder(context: Context, sessionKey: String) {
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         val intent = Intent(context, ReminderBroadcastReceiver::class.java).apply {
@@ -87,5 +109,6 @@ object ReminderScheduler {
         defaultReminders.forEach { key ->
             cancelReminder(context, key)
         }
+        cancelReminder(context, GlucoseMeasurementSchedule.SESSION_KEY)
     }
 }

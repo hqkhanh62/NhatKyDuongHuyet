@@ -21,7 +21,7 @@ import kotlin.math.roundToInt
 object MeterTextParser {
 
     // ------------------------------------------------------------------ tầng 0
-    private val COLON_DECIMAL = Regex("(?<![0-9])([0-9])\\s*:\\s*([0-9])(?![0-9])")
+    private val COLON_DECIMAL = Regex("(?<![0-9])([0-9]{1,2})\\s*:\\s*([0-9])(?![0-9])")
     private val SPACED_DOT = Regex("(?<=\\d)\\s*[.]\\s*(?=\\d)")
     private val SPACE_DECIMAL = Regex(
         "(?<!\\d)(\\d{1,2})\\s+(\\d)(?=\\s*(?:mmol|mg(?:/\\s*dl)?|$))",
