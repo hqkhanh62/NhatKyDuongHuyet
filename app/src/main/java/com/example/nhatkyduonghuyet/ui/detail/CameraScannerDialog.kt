@@ -11,17 +11,18 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FlashOn
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -37,6 +38,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import com.example.nhatkyduonghuyet.domain.scanner.AutoImportPipeline
@@ -57,11 +59,11 @@ import java.util.concurrent.atomic.AtomicBoolean
 /**
  * Scanning dialog opened from DayDetail.
  *
- * Nó dùng lại [GlucoseCameraPreview] (cùng ROI + overlay với màn hình quét toàn
- * màn hình) và thêm bước kiểm tra: sau khi AI khoá được chỉ số, banner hiện
- * ngay dưới camera cho người dùng xác nhận *trước khi* số liệu được điền vào ô
- * đang nhập. Giờ lấy trên màn hình máy đo được ưu tiên, nếu máy không hiển thị
- * giờ thì dùng giờ điện thoại.
+ * Nó dùng lại [GlucoseCameraPreview] và mở preview trên toàn bộ màn hình, đúng
+ * như luồng quét từ Dashboard. Vì vậy ROI, dải quét, lấy nét và lượt quét chữ
+ * nhỏ phủ toàn chiều cao đều có cùng kích thước vật lý ở cả hai điểm vào. Sau
+ * khi AI khoá được chỉ số, banner hiện trên camera để người dùng xác nhận *trước
+ * khi* số liệu được điền vào ô đang nhập.
  */
 @Composable
 fun CameraScannerDialog(
@@ -123,21 +125,24 @@ fun CameraScannerDialog(
         )
     }
 
-    AlertDialog(
+    // AlertDialog giới hạn phần text vào một khung ngắn. Điều đó làm ROI ở
+    // DayDetail nhỏ hơn Dashboard và thanh quét chỉ chạy trong khung đó. Dialog
+    // toàn màn hình giữ cùng viewport với ScannerScreen, nên hình học camera và
+    // OCR được dùng hoàn toàn giống Dashboard.
+    Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-        modifier = Modifier.fillMaxWidth(0.96f),
-        title = { Text("Quét máy đo - AI OCR") },
-        confirmButton = {},
-        dismissButton = {
-            Row(horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = onDismiss) { Text("HỦY") }
-            }
-        },
-        text = {
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = Color.Black
+        ) {
             if (!permissionGranted) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(statusText)
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(24.dp),
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Text(statusText, color = Color.White)
                     Spacer(Modifier.height(12.dp))
                     Button(onClick = {
                         permissionLauncher.launch(Manifest.permission.CAMERA)
@@ -146,16 +151,11 @@ fun CameraScannerDialog(
                     }
                 }
             } else {
-                Column {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 360.dp, max = 460.dp)
-                    ) {
-                        val review = pendingResult
-                        GlucoseCameraPreview(
+                Box(modifier = Modifier.fillMaxSize()) {
+                    val review = pendingResult
+                    GlucoseCameraPreview(
                             scanner = scanner,
-                            modifier = Modifier.fillMaxWidth().height(420.dp),
+                            modifier = Modifier.fillMaxSize(),
                             enabled = review == null,
                             torchEnabled = torchOn,
                             onCameraReady = { cameraControl = it },
@@ -163,7 +163,20 @@ fun CameraScannerDialog(
                                 statusText = "Không thể mở camera: " +
                                     (error.localizedMessage ?: "lỗi không xác định")
                             },
-                            onOcrFields = { fields -> liveFields = fields },
+                            onOcrFields = { fields ->
+                                liveFields = fields
+                                statusText = fields.errorCode?.let { code ->
+                                    "Máy đo đang báo lỗi $code"
+                                } ?: when {
+                                    fields.glucose == null ->
+                                        "Chưa thấy chỉ số - lồng cả màn hình máy đo vào khung, giữ yên"
+                                    fields.time == null && fields.date == null && !fields.smallTextScanned ->
+                                        "Đang quét toàn chiều cao để tìm mm-dd và hh:mm…"
+                                    fields.time == null && fields.date == null ->
+                                        "Máy đo không hiển thị giờ/ngày - sẽ dùng giờ điện thoại"
+                                    else -> "Đã nhận diện chỉ số, đang kiểm tra độ ổn định…"
+                                }
+                            },
                             overlay = { spec ->
                                 ScanAlignmentOverlay(
                                     spec = spec,
@@ -174,7 +187,9 @@ fun CameraScannerDialog(
                                         liveValue = review?.value?.let { AutoImportPipeline.formatMmol(it) },
                                         meterTime = liveFields?.time?.formatted,
                                         meterDate = liveFields?.date?.dayMonth,
-                                        hint = if (review == null) statusText else null
+                                        hint = if (review == null) statusText else null,
+                                        smallTextSweep = liveFields?.smallTextScanned == true ||
+                                            review?.fields?.smallTextScanned == true
                                     )
                                 )
                             },
@@ -195,7 +210,7 @@ fun CameraScannerDialog(
                                             runCatching { cameraControl?.enableTorch(false) }
                                             pendingResult = result.copy(value = stableValue)
                                         } else {
-                                            hits += 1
+                                            hits = stableTracker.matchCount()
                                         }
                                     }
 
@@ -210,12 +225,26 @@ fun CameraScannerDialog(
                                     }
                                 }
                             }
-                        )
+                    )
 
-                        IconButton(
-                            onClick = { torchOn = !torchOn },
-                            modifier = Modifier.align(Alignment.TopEnd).padding(8.dp)
-                        ) {
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .fillMaxWidth()
+                            .statusBarsPadding()
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        TextButton(onClick = onDismiss) {
+                            Text("HỦY", color = Color.White)
+                        }
+                        Text(
+                            text = "Quét máy đo - AI OCR",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(onClick = { torchOn = !torchOn }) {
                             Icon(
                                 Icons.Default.FlashOn,
                                 contentDescription = "Bật/tắt đèn",
@@ -224,30 +253,41 @@ fun CameraScannerDialog(
                         }
                     }
 
-                    Spacer(Modifier.height(8.dp))
-
                     val info = resolved
-                    if (info != null) {
-                        ScanQuickReviewBanner(
-                            info = info,
-                            onConfirm = {
-                                pendingResult?.let { onResult(it) }
-                            },
-                            onRescan = {
-                                stableTracker.clear()
-                                hasDeliveredResult.set(false)
-                                hits = 0
-                                pendingResult = null
-                                statusText = "Đưa màn hình máy đo vào khung và giữ yên…"
-                            }
-                        )
-                    } else {
-                        Text(statusText, fontSize = 12.sp)
+                    Surface(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        color = Color.Black.copy(alpha = 0.72f),
+                        contentColor = Color.White,
+                        shape = MaterialTheme.shapes.large
+                    ) {
+                        if (info != null) {
+                            ScanQuickReviewBanner(
+                                info = info,
+                                onConfirm = { pendingResult?.let(onResult) },
+                                onRescan = {
+                                    stableTracker.clear()
+                                    hasDeliveredResult.set(false)
+                                    hits = 0
+                                    pendingResult = null
+                                    statusText = "Đưa màn hình máy đo vào khung và giữ yên…"
+                                }
+                            )
+                        } else {
+                            Text(
+                                text = statusText,
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                modifier = Modifier.padding(12.dp)
+                            )
+                        }
                     }
                 }
             }
         }
-    )
+    }
 }
 
 private data class QuickReviewInfo(
