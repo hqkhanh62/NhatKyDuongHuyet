@@ -13,7 +13,7 @@ Write-Host "  📦 ĐÓNG GÓI PROJECT: $projectName" -ForegroundColor Cyan
 Write-Host "═══════════════════════════════════════" -ForegroundColor Cyan
 
 # Danh sách thư mục/file cần bỏ qua
-$excludeList = @("build", ".git", ".gradle", ".github", ".idea", "captures", "externalNativeBuild", "cxx", "*.iml", "local.properties")
+$excludeList = @("build", ".git", ".gradle", ".github", ".idea", "captures", "externalNativeBuild", "cxx", "*.iml", "local.properties.backup", "local.properties")
 
 Write-Host ""
 Write-Host "🗑️  Các thư mục sẽ bỏ qua:" -ForegroundColor Yellow

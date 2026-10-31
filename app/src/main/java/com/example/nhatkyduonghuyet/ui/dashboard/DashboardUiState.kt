@@ -9,6 +9,7 @@ enum class DashboardTimeFilter(val days: Int, val label: String) {
     LAST_15_DAYS(15, "15 ngày qua"),
     LAST_30_DAYS(30, "30 ngày qua"),
     LAST_60_DAYS(60, "60 ngày qua"),
+    LAST_90_DAYS(90, "90 ngày qua"),
     ALL(Int.MAX_VALUE, "Toàn bộ thời gian")
 }
 

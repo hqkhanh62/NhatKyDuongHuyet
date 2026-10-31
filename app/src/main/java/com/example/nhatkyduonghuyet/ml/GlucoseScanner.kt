@@ -6,8 +6,6 @@ import com.google.mlkit.vision.text.Text
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.TextRecognizer
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
-import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.abs
@@ -47,19 +45,7 @@ class GlucoseScanner @Inject constructor() {
         TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
     }
 
-    /**
-     * Lượt quét bổ sung chạy không quá một lần mỗi khoảng này. Nó đắt gấp đôi một
-     * frame thường (thêm một lần ML Kit trên ảnh phóng 8x) và chỉ có ý nghĩa khi
-     * màn hình có dòng mm-dd / HH:mm, nên không cần chạy mỗi 250 ms.
-     */
-    private val lastSweepAt = AtomicLong(0L)
-
-    /**
-     * Số lượt quét toàn màn hình liên tiếp không tìm thêm được gì. Máy đo không in
-     * giờ/ngày lên màn hình thì dù có quét hết chiều cao cũng vẫn trống, nên sau vài
-     * lần như vậy AI ngừng quét lặp - tiết kiệm pin cho tới khi thấy lại chỉ số.
-     */
-    private val emptySweeps = AtomicInteger(0)
+    private val smallTextSweepPolicy = SmallTextSweepPolicy()
 
     fun processImage(
         image: InputImage,
@@ -68,10 +54,7 @@ class GlucoseScanner @Inject constructor() {
     ) {
         recognizer.process(image)
             .addOnSuccessListener { visionText ->
-                // Khi có layout thì chỉ tin vào cây layout: gộp toàn bộ văn bản
-                // thành một chuỗi sẽ trộn lẫn số lớn ở giữa màn hình với chữ số
-                // nhỏ của nhãn DAY/AVG/ngày/giờ (5.7 có thể thành số khác).
-                onResult(resultOf(fieldsFrom(visionText, allowTextFallback = false)))
+                onResult(initialOcrResult(visionText.text))
             }
             .addOnFailureListener { error ->
                 onError(error)
@@ -93,40 +76,155 @@ class GlucoseScanner @Inject constructor() {
         onError: (Exception) -> Unit,
         onOcrFields: (MeterDisplayFields) -> Unit = {}
     ) {
-        val rotated = ImageUtils.rotateBitmap(fullBitmap, rotationDegrees)
-        val safeRoi = roi.sanitized()
-        // 1. Pixel reader đọc đúng vùng màn hình người dùng căn khung: ở đây càng
-        //    sát càng tốt vì bộ giải mã bảy thanh tính tỉ lệ thanh theo chiều cao crop.
-        val pixelRoi = ImageUtils.enhanceForOcr(ImageUtils.cropNormalized(rotated, safeRoi))
-        val pixelResult = pixelReader.processDisplay(pixelRoi)
+        var rotated: Bitmap? = null
+        var ocrBitmap: Bitmap? = null
+        try {
+            val rotatedBmp = ImageUtils.rotateBitmap(fullBitmap, rotationDegrees)
+            rotated = rotatedBmp
 
-        // 2. ML Kit đọc vùng đã nới, chủ yếu theo chiều dọc, để đơn vị mmol/L và
-        //    các nhãn quanh số lớn nằm gọn trong khung phân tích.
-        val displayRoi = safeRoi.expand(OCR_ROI_PADDING_X, OCR_ROI_PADDING_Y)
-        val ocrBitmap = ImageUtils.prepareOcrBitmap(rotated, displayRoi)
-        recognizer.process(InputImage.fromBitmap(ocrBitmap, 0))
-            .addOnSuccessListener { visionText ->
-                val fields = fieldsFrom(visionText, allowTextFallback = true)
-                if (shouldRunSweep(fields)) {
-                    runSmallTextSweep(rotated, displayRoi, fields, pixelResult, onOcrFields, onResult)
-                } else {
-                    finishFrame(fields, pixelResult, onOcrFields, onResult)
-                }
+            // 1. Cắt, tăng tương phản và nâng kích thước vùng khung căn chỉnh
+            val croppedOcr = ImageUtils.prepareOcrBitmap(rotatedBmp, roi)
+            ocrBitmap = croppedOcr
+
+            // 2. Bộ giải mã 7-segment đọc trực tiếp từng thanh LCD
+            val pixelResult = try {
+                pixelReader.processDisplay(croppedOcr)
+            } catch (e: Exception) {
+                null
             }
-            .addOnFailureListener { error ->
-                // ML Kit hỏng thì vẫn còn kết quả đọc điểm ảnh.
-                if (pixelResult != null && pixelResult.confidence >= PIXEL_AUTHORITATIVE_CONFIDENCE) {
-                    onResult(
-                        ScannedGlucoseResult(
-                            value = pixelResult.value,
-                            source = "PIXEL",
-                            confidence = pixelResult.confidence
-                        )
-                    )
-                } else {
-                    onError(error)
+
+            // 3. ML Kit nhận dạng văn bản trên vùng crop
+            recognizer.process(InputImage.fromBitmap(croppedOcr, 0))
+                .addOnSuccessListener { visionText ->
+                    try {
+                        var fields = fieldsFrom(visionText, allowTextFallback = true)
+
+                        // Dự phòng quét toàn bộ khung hình nếu vùng crop chưa đọc ra chỉ số
+                        if (fields.glucose == null && pixelResult == null) {
+                            recognizer.process(InputImage.fromBitmap(rotatedBmp, 0))
+                                .addOnSuccessListener { fullVisionText ->
+                                    try {
+                                        val fullFields = fieldsFrom(fullVisionText, allowTextFallback = true)
+                                        val initialVal = initialExtractGlucose(fullVisionText.text)
+                                        val fallbackGlucose = fullFields.glucose ?: initialVal?.let {
+                                            GlucoseReading(
+                                                value = it,
+                                                confidence = INITIAL_OCR_CONFIDENCE,
+                                                fromSpatialLine = false,
+                                                hasUnit = false,
+                                                hasDecimal = true
+                                            )
+                                        }
+                                        fields = fullFields.copy(glucose = fallbackGlucose)
+
+                                        if (shouldRunSweep(fields)) {
+                                            runSmallTextSweep(rotatedBmp, roi, fields, pixelResult, onOcrFields) { res ->
+                                                cleanupBitmaps(rotatedBmp, fullBitmap, croppedOcr)
+                                                onResult(res)
+                                            }
+                                        } else {
+                                            cleanupBitmaps(rotatedBmp, fullBitmap, croppedOcr)
+                                            finishFrame(fields, pixelResult, onOcrFields, onResult)
+                                        }
+                                    } catch (e: Exception) {
+                                        cleanupBitmaps(rotatedBmp, fullBitmap, croppedOcr)
+                                        finishFrame(fields, pixelResult, onOcrFields, onResult)
+                                    }
+                                }
+                                .addOnFailureListener {
+                                    if (shouldRunSweep(fields)) {
+                                        runSmallTextSweep(rotatedBmp, roi, fields, pixelResult, onOcrFields) { res ->
+                                            cleanupBitmaps(rotatedBmp, fullBitmap, croppedOcr)
+                                            onResult(res)
+                                        }
+                                    } else {
+                                        cleanupBitmaps(rotatedBmp, fullBitmap, croppedOcr)
+                                        finishFrame(fields, pixelResult, onOcrFields, onResult)
+                                    }
+                                }
+                        } else {
+                            if (shouldRunSweep(fields)) {
+                                runSmallTextSweep(rotatedBmp, roi, fields, pixelResult, onOcrFields) { res ->
+                                    cleanupBitmaps(rotatedBmp, fullBitmap, croppedOcr)
+                                    onResult(res)
+                                }
+                            } else {
+                                cleanupBitmaps(rotatedBmp, fullBitmap, croppedOcr)
+                                finishFrame(fields, pixelResult, onOcrFields, onResult)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        cleanupBitmaps(rotatedBmp, fullBitmap, croppedOcr)
+                        finishFrame(MeterDisplayFields(), pixelResult, onOcrFields, onResult)
+                    }
                 }
+                .addOnFailureListener {
+                    // Dự phòng quét full frame nếu ML Kit crop báo lỗi
+                    try {
+                        recognizer.process(InputImage.fromBitmap(rotatedBmp, 0))
+                            .addOnSuccessListener { fullVisionText ->
+                                try {
+                                    val fields = fieldsFrom(fullVisionText, allowTextFallback = true)
+                                    if (shouldRunSweep(fields)) {
+                                        runSmallTextSweep(rotatedBmp, roi, fields, pixelResult, onOcrFields) { res ->
+                                            cleanupBitmaps(rotatedBmp, fullBitmap, croppedOcr)
+                                            onResult(res)
+                                        }
+                                    } else {
+                                        cleanupBitmaps(rotatedBmp, fullBitmap, croppedOcr)
+                                        finishFrame(fields, pixelResult, onOcrFields, onResult)
+                                    }
+                                } catch (e: Exception) {
+                                    cleanupBitmaps(rotatedBmp, fullBitmap, croppedOcr)
+                                    finishFrame(MeterDisplayFields(), pixelResult, onOcrFields, onResult)
+                                }
+                            }
+                            .addOnFailureListener { error ->
+                                cleanupBitmaps(rotatedBmp, fullBitmap, croppedOcr)
+                                onError(error)
+                            }
+                    } catch (e: Exception) {
+                        cleanupBitmaps(rotatedBmp, fullBitmap, croppedOcr)
+                        onError(e)
+                    }
+                }
+        } catch (e: Exception) {
+            cleanupBitmaps(rotated, fullBitmap, ocrBitmap)
+            onError(e)
+        }
+    }
+
+    private fun cleanupBitmaps(rotated: Bitmap?, fullBitmap: Bitmap, ocrBitmap: Bitmap?) {
+        try {
+            if (ocrBitmap != null && !ocrBitmap.isRecycled) {
+                ocrBitmap.recycle()
             }
+            if (rotated != null && rotated != fullBitmap && !rotated.isRecycled) {
+                rotated.recycle()
+            }
+        } catch (_: Exception) {}
+    }
+
+    /**
+     * OCR camera nguyên bản của commit 583e8da.
+     *
+     * Không đọc pixel/seven-segment, không sweep, không suy luận ngày/giờ:
+     * chỉ lấy token thập phân mà ML Kit trả về từ frame camera.
+     */
+    private fun initialOcrResult(rawText: String): ScannedGlucoseResult? {
+        val value = initialExtractGlucose(rawText) ?: return null
+        return ScannedGlucoseResult(
+            value = value,
+            source = "ML_KIT",
+            confidence = INITIAL_OCR_CONFIDENCE
+        )
+    }
+
+    private fun initialExtractGlucose(text: String): Float? {
+        val normalizedText = text.replace(',', '.')
+        val match = INITIAL_GLUCOSE_REGEX.find(normalizedText) ?: return null
+        val value = match.value.toFloatOrNull() ?: return null
+        return value.takeIf { it in INITIAL_MIN_GLUCOSE..INITIAL_MAX_GLUCOSE }
     }
 
     /**
@@ -145,33 +243,39 @@ class GlucoseScanner @Inject constructor() {
         onOcrFields: (MeterDisplayFields) -> Unit,
         onResult: (ScannedGlucoseResult?) -> Unit
     ) {
-        val sweepRoi = smallTextSweepRoi(displayRoi)
-        val sweepBitmap = ImageUtils.prepareSmallTextBitmap(rotated, sweepRoi)
-        recognizer.process(InputImage.fromBitmap(sweepBitmap, 0))
-            .addOnSuccessListener { sweepText ->
-                val extra = MeterTextParser.parseSmallText(
-                    rawText = sweepText.text,
-                    lines = toLines(sweepText),
-                    // Cho sweep đọc lại cả chỉ số. MeterTextParser.merge() chỉ cho
-                    // giá trị này thay thế crop chính khi bằng chứng không gian/
-                    // confidence mạnh hơn; nhờ vậy sweep sửa được một OCR sai,
-                    // nhưng không biến dòng ngày/giờ thành glucose.
-                    includeGlucose = true
-                )
-                val merged = MeterTextParser.merge(base, extra)
-                emptySweeps.set(
-                    if (merged.time == null && merged.date == null) {
-                        emptySweeps.get() + 1
-                    } else {
-                        0
+        var sweepBitmap: Bitmap? = null
+        try {
+            val sweepRoi = smallTextSweepRoi(displayRoi)
+            val bitmap = ImageUtils.prepareSmallTextBitmap(rotated, sweepRoi)
+            sweepBitmap = bitmap
+            recognizer.process(InputImage.fromBitmap(bitmap, 0))
+                .addOnSuccessListener { sweepText ->
+                    try {
+                        val extra = MeterTextParser.parseSmallText(
+                            rawText = sweepText.text,
+                            lines = toLines(sweepText),
+                            includeGlucose = true
+                        )
+                        val merged = MeterTextParser.merge(base, extra)
+                        finishFrame(merged, pixelResult, onOcrFields, onResult)
+                    } catch (e: Exception) {
+                        finishFrame(base, pixelResult, onOcrFields, onResult)
+                    } finally {
+                        recycleBitmap(bitmap)
                     }
-                )
-                finishFrame(merged, pixelResult, onOcrFields, onResult)
-            }
-            .addOnFailureListener {
-                // Quet bo sung hong thi khong duoc lam mat ket qua chinh.
-                finishFrame(base, pixelResult, onOcrFields, onResult)
-            }
+                }
+                .addOnFailureListener {
+                    recycleBitmap(bitmap)
+                    finishFrame(base, pixelResult, onOcrFields, onResult)
+                }
+        } catch (e: Exception) {
+            recycleBitmap(sweepBitmap)
+            finishFrame(base, pixelResult, onOcrFields, onResult)
+        }
+    }
+
+    private fun recycleBitmap(bitmap: Bitmap?) {
+        if (bitmap != null && !bitmap.isRecycled) bitmap.recycle()
     }
 
     private fun finishFrame(
@@ -184,17 +288,9 @@ class GlucoseScanner @Inject constructor() {
         onResult(combineHybrid(pixelResult, fields))
     }
 
-    /** Quet bo sung khi con thieu truong, khong qua 2 lan/giay va bo cuoc sau vai lan cong. */
-    private fun shouldRunSweep(fields: MeterDisplayFields): Boolean {
-        if (fields.glucose != null && fields.time != null && fields.date != null) return false
-        // Mat chi so = nguoi dung dua may ra/vo -> cho phep thu lai tu dau.
-        if (fields.glucose == null) emptySweeps.set(0)
-        if (emptySweeps.get() >= MAX_EMPTY_SWEEPS) return false
-        val now = System.currentTimeMillis()
-        val last = lastSweepAt.get()
-        if (now - last < SWEEP_MIN_INTERVAL_MS) return false
-        return lastSweepAt.compareAndSet(last, now)
-    }
+    /** Continues scanning missing display fields, with a throttle to limit ML work. */
+    private fun shouldRunSweep(fields: MeterDisplayFields): Boolean =
+        smallTextSweepPolicy.shouldRun(fields, System.nanoTime() / NANOS_PER_MILLI)
 
     /** Chuyển cây văn bản ML Kit thành danh sách dòng kèm cỡ chữ. */
     private fun toLines(visionText: Text): List<OcrLine> = visionText.textBlocks
@@ -275,6 +371,9 @@ class GlucoseScanner @Inject constructor() {
     /** Visible to JVM tests without exposing parsing internals to production callers. */
     internal fun extractGlucoseForTesting(text: String): Float? = MeterTextParser.extractGlucose(text)
 
+    /** Regression hook cho đường OCR camera nguyên bản từ commit 583e8da. */
+    internal fun extractInitialGlucoseForTesting(text: String): Float? = initialExtractGlucose(text)
+
     /** Visible to JVM tests: hybrid combination decision for a frame. */
     internal fun combineHybridForTesting(
         pixel: PixelDisplayReading?,
@@ -288,8 +387,10 @@ class GlucoseScanner @Inject constructor() {
     }
 }
 
-/** Khoảng cách tối thiểu giữa hai lượt quét bổ sung, tính bằng ms. */
-private const val SWEEP_MIN_INTERVAL_MS = 600L
+private const val NANOS_PER_MILLI = 1_000_000L
 
-/** Số lượt quét toàn màn hình liên tiếp trống ngày/giờ trước khi bỏ cuộc. */
-private const val MAX_EMPTY_SWEEPS = 6
+/** Quy tắc OCR camera nguyên bản từ commit 583e8da. */
+private val INITIAL_GLUCOSE_REGEX = Regex("\\b(\\d{1,2}\\.\\d)\\b")
+private const val INITIAL_MIN_GLUCOSE = 2.0f
+private const val INITIAL_MAX_GLUCOSE = 30.0f
+private const val INITIAL_OCR_CONFIDENCE = 0.5f

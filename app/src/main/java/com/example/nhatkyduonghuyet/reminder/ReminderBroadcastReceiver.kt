@@ -15,6 +15,7 @@ class ReminderBroadcastReceiver : BroadcastReceiver() {
             Intent.ACTION_TIME_CHANGED -> {
                 NotificationHelper.createNotificationChannel(context)
                 ReminderScheduler.scheduleAllReminders(context)
+                ReminderScheduler.scheduleEveryFourDaysReminder(context)
             }
             "com.example.nhatkyduonghuyet.reminder.ACTION_TRIGGER_REMINDER" -> {
                 val label = intent.getStringExtra("SESSION_LABEL") ?: "Nhắc nhở"
@@ -26,8 +27,9 @@ class ReminderBroadcastReceiver : BroadcastReceiver() {
                     "Đã đến giờ $label ($time). Hãy ghi nhật ký sức khỏe của bạn."
                 )
                 
-                // Reschedule for the next day
+                // Giữ các nhắc hằng ngày và lập lại lịch định kỳ 4 ngày.
                 ReminderScheduler.scheduleAllReminders(context)
+                ReminderScheduler.scheduleEveryFourDaysReminder(context)
             }
         }
     }

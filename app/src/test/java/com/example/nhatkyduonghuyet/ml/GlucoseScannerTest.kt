@@ -14,6 +14,20 @@ class GlucoseScannerTest {
     }
 
     @Test
+    fun `initial camera OCR accepts the original decimal rule`() {
+        assertEquals(6.1f, scanner.extractInitialGlucoseForTesting("Glucose: 6,1 mmol/L"))
+        assertEquals(12.3f, scanner.extractInitialGlucoseForTesting("12.3 mmol/L"))
+        assertNull(scanner.extractInitialGlucoseForTesting("Result: 81"))
+        assertNull(scanner.extractInitialGlucoseForTesting("Result: 1.8 mmol/L"))
+    }
+
+    @Test
+    fun `initial camera OCR does not use later seven segment repairs`() {
+        assertNull(scanner.extractInitialGlucoseForTesting("Result: 57 mmol/L"))
+        assertNull(scanner.extractInitialGlucoseForTesting("Result: 6 . 1 mmol/L"))
+    }
+
+    @Test
     fun `accepts spaces around decimal separator`() {
         assertEquals(6.1f, scanner.extractGlucoseForTesting("Result 6 . 1 mmol/L"))
     }

@@ -126,81 +126,93 @@ fun GlucoseCameraPreview(
                         .also { it.setSurfaceProvider(previewView.surfaceProvider) }
 
                     val imageAnalysis = ImageAnalysis.Builder()
-                        // Higher analysis resolution: digit strokes survive the crop.
-                        .setTargetResolution(Size(1920, 1080))
+                        .setTargetResolution(Size(1280, 720))
                         .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                         .build()
                         .also { analysis ->
                             analysis.setAnalyzer(cameraExecutor) { imageProxy ->
-                                val now = System.currentTimeMillis()
-                                val shouldAnalyze = enabledRef.get() && !stopped.get() &&
-                                    !isProcessing.get() &&
-                                    now - lastAttemptAt.get() >= SCAN_ANALYSIS_INTERVAL_MS
+                                var proxyClosed = false
+                                try {
+                                    val now = System.currentTimeMillis()
+                                    val shouldAnalyze = enabledRef.get() && !stopped.get() &&
+                                        !isProcessing.get() &&
+                                        now - lastAttemptAt.get() >= SCAN_ANALYSIS_INTERVAL_MS
 
-                                if (!shouldAnalyze) {
-                                    imageProxy.close()
-                                    return@setAnalyzer
-                                }
-                                lastAttemptAt.set(now)
-                                if (!isProcessing.compareAndSet(false, true)) {
-                                    imageProxy.close()
-                                    return@setAnalyzer
-                                }
-
-                                // Keep the guide frame in focus for the whole
-                                // scan (CameraControl is thread-safe).
-                                val lastFocus = lastFocusRequestAt.get()
-                                if (now - lastFocus >= FOCUS_REFRESH_INTERVAL_MS &&
-                                    lastFocusRequestAt.compareAndSet(lastFocus, now)
-                                ) {
-                                    focusActionRef.get()?.let { action ->
-                                        cameraControlRef.get()?.startFocusAndMetering(action)
+                                    if (!shouldAnalyze) {
+                                        proxyClosed = true
+                                        imageProxy.close()
+                                        return@setAnalyzer
                                     }
-                                }
+                                    lastAttemptAt.set(now)
+                                    if (!isProcessing.compareAndSet(false, true)) {
+                                        proxyClosed = true
+                                        imageProxy.close()
+                                        return@setAnalyzer
+                                    }
 
-                                val bitmap = try {
-                                    imageProxy.toBitmap()
+                                    // Keep the guide frame in focus for the whole
+                                    // scan (CameraControl is thread-safe).
+                                    val lastFocus = lastFocusRequestAt.get()
+                                    if (now - lastFocus >= FOCUS_REFRESH_INTERVAL_MS &&
+                                        lastFocusRequestAt.compareAndSet(lastFocus, now)
+                                    ) {
+                                        focusActionRef.get()?.let { action ->
+                                            cameraControlRef.get()?.startFocusAndMetering(action)
+                                        }
+                                    }
+
+                                    val bitmap = try {
+                                        imageProxy.toBitmap()
+                                    } catch (e: Exception) {
+                                        null
+                                    }
+                                    if (bitmap == null) {
+                                        isProcessing.set(false)
+                                        proxyClosed = true
+                                        imageProxy.close()
+                                        return@setAnalyzer
+                                    }
+
+                                    val rotation = imageProxy.imageInfo.rotationDegrees
+                                    // Rotated frame dimensions, matching what is displayed.
+                                    val upright = rotation == 90 || rotation == 270
+                                    val imageWidth = if (upright) bitmap.height else bitmap.width
+                                    val imageHeight = if (upright) bitmap.width else bitmap.height
+
+                                    val roi = scanRoiForViewport(
+                                        imageWidth = imageWidth,
+                                        imageHeight = imageHeight,
+                                        viewWidth = viewWidthPx.toInt(),
+                                        viewHeight = viewHeightPx.toInt(),
+                                        frameWidth = frameWidthPx,
+                                        frameHeight = frameHeightPx
+                                    )
+
+                                    scanner.processHybrid(
+                                        bitmap,
+                                        rotation,
+                                        roi,
+                                        onResult = { result ->
+                                            isProcessing.set(false)
+                                            runCatching { if (!bitmap.isRecycled) bitmap.recycle() }
+                                            runCatching { imageProxy.close() }
+                                            if (result != null && !stopped.get()) onResult(result)
+                                        },
+                                        onError = {
+                                            isProcessing.set(false)
+                                            runCatching { if (!bitmap.isRecycled) bitmap.recycle() }
+                                            runCatching { imageProxy.close() }
+                                        },
+                                        onOcrFields = { fields ->
+                                            if (!stopped.get()) onOcrFields(fields)
+                                        }
+                                    )
                                 } catch (e: Exception) {
-                                    null
-                                }
-                                if (bitmap == null) {
                                     isProcessing.set(false)
-                                    imageProxy.close()
-                                    return@setAnalyzer
-                                }
-
-                                val rotation = imageProxy.imageInfo.rotationDegrees
-                                // Rotated frame dimensions, matching what is displayed.
-                                val upright = rotation == 90 || rotation == 270
-                                val imageWidth = if (upright) bitmap.height else bitmap.width
-                                val imageHeight = if (upright) bitmap.width else bitmap.height
-
-                                val roi = scanRoiForViewport(
-                                    imageWidth = imageWidth,
-                                    imageHeight = imageHeight,
-                                    viewWidth = viewWidthPx.toInt(),
-                                    viewHeight = viewHeightPx.toInt(),
-                                    frameWidth = frameWidthPx,
-                                    frameHeight = frameHeightPx
-                                )
-
-                                scanner.processHybrid(
-                                    bitmap,
-                                    rotation,
-                                    roi,
-                                    onResult = { result ->
-                                        isProcessing.set(false)
-                                        imageProxy.close()
-                                        if (result != null && !stopped.get()) onResult(result)
-                                    },
-                                    onError = {
-                                        isProcessing.set(false)
-                                        imageProxy.close()
-                                    },
-                                    onOcrFields = { fields ->
-                                        if (!stopped.get()) onOcrFields(fields)
+                                    if (!proxyClosed) {
+                                        runCatching { imageProxy.close() }
                                     }
-                                )
+                                }
                             }
                         }
 
