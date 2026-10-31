@@ -6,8 +6,6 @@ import com.google.mlkit.vision.text.Text
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.TextRecognizer
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
-import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.abs
@@ -47,19 +45,7 @@ class GlucoseScanner @Inject constructor() {
         TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
     }
 
-    /**
-     * Lượt quét bổ sung chạy không quá một lần mỗi khoảng này. Nó đắt gấp đôi một
-     * frame thường (thêm một lần ML Kit trên ảnh phóng 8x) và chỉ có ý nghĩa khi
-     * màn hình có dòng mm-dd / HH:mm, nên không cần chạy mỗi 250 ms.
-     */
-    private val lastSweepAt = AtomicLong(0L)
-
-    /**
-     * Số lượt quét toàn màn hình liên tiếp không tìm thêm được gì. Máy đo không in
-     * giờ/ngày lên màn hình thì dù có quét hết chiều cao cũng vẫn trống, nên sau vài
-     * lần như vậy AI ngừng quét lặp - tiết kiệm pin cho tới khi thấy lại chỉ số.
-     */
-    private val emptySweeps = AtomicInteger(0)
+    private val smallTextSweepPolicy = SmallTextSweepPolicy()
 
     fun processImage(
         image: InputImage,
@@ -179,8 +165,15 @@ class GlucoseScanner @Inject constructor() {
                             .addOnSuccessListener { fullVisionText ->
                                 try {
                                     val fields = fieldsFrom(fullVisionText, allowTextFallback = true)
-                                    cleanupBitmaps(rotatedBmp, fullBitmap, croppedOcr)
-                                    finishFrame(fields, pixelResult, onOcrFields, onResult)
+                                    if (shouldRunSweep(fields)) {
+                                        runSmallTextSweep(rotatedBmp, roi, fields, pixelResult, onOcrFields) { res ->
+                                            cleanupBitmaps(rotatedBmp, fullBitmap, croppedOcr)
+                                            onResult(res)
+                                        }
+                                    } else {
+                                        cleanupBitmaps(rotatedBmp, fullBitmap, croppedOcr)
+                                        finishFrame(fields, pixelResult, onOcrFields, onResult)
+                                    }
                                 } catch (e: Exception) {
                                     cleanupBitmaps(rotatedBmp, fullBitmap, croppedOcr)
                                     finishFrame(MeterDisplayFields(), pixelResult, onOcrFields, onResult)
@@ -250,10 +243,12 @@ class GlucoseScanner @Inject constructor() {
         onOcrFields: (MeterDisplayFields) -> Unit,
         onResult: (ScannedGlucoseResult?) -> Unit
     ) {
+        var sweepBitmap: Bitmap? = null
         try {
             val sweepRoi = smallTextSweepRoi(displayRoi)
-            val sweepBitmap = ImageUtils.prepareSmallTextBitmap(rotated, sweepRoi)
-            recognizer.process(InputImage.fromBitmap(sweepBitmap, 0))
+            val bitmap = ImageUtils.prepareSmallTextBitmap(rotated, sweepRoi)
+            sweepBitmap = bitmap
+            recognizer.process(InputImage.fromBitmap(bitmap, 0))
                 .addOnSuccessListener { sweepText ->
                     try {
                         val extra = MeterTextParser.parseSmallText(
@@ -262,24 +257,25 @@ class GlucoseScanner @Inject constructor() {
                             includeGlucose = true
                         )
                         val merged = MeterTextParser.merge(base, extra)
-                        emptySweeps.set(
-                            if (merged.time == null && merged.date == null) {
-                                emptySweeps.get() + 1
-                            } else {
-                                0
-                            }
-                        )
                         finishFrame(merged, pixelResult, onOcrFields, onResult)
                     } catch (e: Exception) {
                         finishFrame(base, pixelResult, onOcrFields, onResult)
+                    } finally {
+                        recycleBitmap(bitmap)
                     }
                 }
                 .addOnFailureListener {
+                    recycleBitmap(bitmap)
                     finishFrame(base, pixelResult, onOcrFields, onResult)
                 }
         } catch (e: Exception) {
+            recycleBitmap(sweepBitmap)
             finishFrame(base, pixelResult, onOcrFields, onResult)
         }
+    }
+
+    private fun recycleBitmap(bitmap: Bitmap?) {
+        if (bitmap != null && !bitmap.isRecycled) bitmap.recycle()
     }
 
     private fun finishFrame(
@@ -292,17 +288,9 @@ class GlucoseScanner @Inject constructor() {
         onResult(combineHybrid(pixelResult, fields))
     }
 
-    /** Quet bo sung khi con thieu truong, khong qua 2 lan/giay va bo cuoc sau vai lan cong. */
-    private fun shouldRunSweep(fields: MeterDisplayFields): Boolean {
-        if (fields.glucose != null && fields.time != null && fields.date != null) return false
-        // Mat chi so = nguoi dung dua may ra/vo -> cho phep thu lai tu dau.
-        if (fields.glucose == null) emptySweeps.set(0)
-        if (emptySweeps.get() >= MAX_EMPTY_SWEEPS) return false
-        val now = System.currentTimeMillis()
-        val last = lastSweepAt.get()
-        if (now - last < SWEEP_MIN_INTERVAL_MS) return false
-        return lastSweepAt.compareAndSet(last, now)
-    }
+    /** Continues scanning missing display fields, with a throttle to limit ML work. */
+    private fun shouldRunSweep(fields: MeterDisplayFields): Boolean =
+        smallTextSweepPolicy.shouldRun(fields, System.nanoTime() / NANOS_PER_MILLI)
 
     /** Chuyển cây văn bản ML Kit thành danh sách dòng kèm cỡ chữ. */
     private fun toLines(visionText: Text): List<OcrLine> = visionText.textBlocks
@@ -399,11 +387,7 @@ class GlucoseScanner @Inject constructor() {
     }
 }
 
-/** Khoảng cách tối thiểu giữa hai lượt quét bổ sung, tính bằng ms. */
-private const val SWEEP_MIN_INTERVAL_MS = 600L
-
-/** Số lượt quét toàn màn hình liên tiếp trống ngày/giờ trước khi bỏ cuộc. */
-private const val MAX_EMPTY_SWEEPS = 6
+private const val NANOS_PER_MILLI = 1_000_000L
 
 /** Quy tắc OCR camera nguyên bản từ commit 583e8da. */
 private val INITIAL_GLUCOSE_REGEX = Regex("\\b(\\d{1,2}\\.\\d)\\b")

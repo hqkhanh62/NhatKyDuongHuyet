@@ -134,9 +134,9 @@ xác nhận không hề biết. Nay `ScanDraft.dateAmbiguous` mang nó tới `Sc
 `09-08` (hoặc `11-05`) mà hai cách đọc đều hợp lệ trên lịch, banner in dòng màu hổ phách
 "Ngày máy đo viết dạng MM-DD nên có thể bị đảo với DD/MM - kiểm lại trước khi lưu".
 
-**Chi phí có kiểm soát:** lượt quét thứ hai chỉ chạy khi còn thiếu trường, không quá 1 lần/600 ms,
-và bỏ cuộc sau 6 lần liên tiếp không thấy gì (`MAX_EMPTY_SWEEPS`) — máy đo không in giờ/ngày lên
-màn hình sẽ không bị quét lặp vô ích. Counter này tự reset khi frame mất chỉ số (người dùng đưa máy ra).
+**Chi phí có kiểm soát:** lượt quét thứ hai chỉ chạy khi còn thiếu trường, không quá 1 lần/600 ms.
+OCR tiếp tục thử khi còn thiếu dữ liệu thay vì dừng sau vài frame trống; lượt quét phụ kết thúc khi
+đã nhận diện đủ chỉ số, giờ và ngày. Bitmap phóng lớn của lượt quét được giải phóng sau mỗi lần xử lý.
 
 **Test khoá hành vi:** `MeterTextParserTest` (9 ca mới: sửa ký tự đúng phạm vi, tách token dính,
 đọc mm-dd + hh:mm, ưu tiên theo dấu phân cách, tie-break theo ngày hôm nay, `merge`),
